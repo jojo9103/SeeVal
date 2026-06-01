@@ -1,0 +1,32 @@
+<svg width="1800" height="1200" viewBox="0 0 1800 1200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1800" height="1200" fill="#071816"/>
+  <path d="M0 708C232 574 422 621 650 520C908 406 1019 196 1800 244V1200H0V708Z" fill="#0F766E"/>
+  <path d="M0 858C299 759 530 869 814 742C1114 607 1258 431 1800 504V1200H0V858Z" fill="#14B8A6" fill-opacity=".68"/>
+  <path d="M0 993C342 897 600 1030 922 918C1236 809 1421 677 1800 737V1200H0V993Z" fill="#5EEAD4" fill-opacity=".32"/>
+  <g opacity=".26">
+    <path d="M143 0V1200M303 0V1200M463 0V1200M623 0V1200M783 0V1200M943 0V1200M1103 0V1200M1263 0V1200M1423 0V1200M1583 0V1200M1743 0V1200" stroke="white"/>
+    <path d="M0 126H1800M0 286H1800M0 446H1800M0 606H1800M0 766H1800M0 926H1800M0 1086H1800" stroke="white"/>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="1045" y="268" width="466" height="304" rx="28" fill="white" fill-opacity=".14"/>
+    <rect x="1077" y="306" width="172" height="24" rx="12" fill="white" fill-opacity=".82"/>
+    <rect x="1077" y="362" width="362" height="18" rx="9" fill="white" fill-opacity=".45"/>
+    <rect x="1077" y="404" width="296" height="18" rx="9" fill="white" fill-opacity=".32"/>
+    <rect x="1077" y="478" width="100" height="52" rx="16" fill="#F59E0B"/>
+    <rect x="1201" y="478" width="100" height="52" rx="16" fill="#60A5FA"/>
+    <rect x="1325" y="478" width="100" height="52" rx="16" fill="#F472B6"/>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="272" y="678" width="388" height="258" rx="28" fill="white" fill-opacity=".13"/>
+    <circle cx="354" cy="759" r="38" fill="#CCFBF1"/>
+    <path d="M336 760L351 775L378 743" stroke="#0F766E" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="426" y="725" width="162" height="22" rx="11" fill="white" fill-opacity=".82"/>
+    <rect x="426" y="775" width="198" height="16" rx="8" fill="white" fill-opacity=".42"/>
+    <rect x="426" y="813" width="154" height="16" rx="8" fill="white" fill-opacity=".3"/>
+  </g>
+  <defs>
+    <filter id="shadow" x="212" y="208" width="1359" height="788" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="28" stdDeviation="24" flood-color="#000000" flood-opacity=".28"/>
+    </filter>
+  </defs>
+</svg>

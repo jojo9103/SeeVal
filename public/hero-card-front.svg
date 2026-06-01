@@ -1,0 +1,14 @@
+<svg width="560" height="360" viewBox="0 0 560 360" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="560" height="360" rx="28" fill="#0F766E"/>
+  <rect x="1" y="1" width="558" height="358" rx="27" stroke="white" stroke-opacity=".18" stroke-width="2"/>
+  <path d="M0 260C88 215 150 246 229 214C320 177 360 92 560 112V360H0V260Z" fill="#14B8A6" fill-opacity=".85"/>
+  <path d="M0 303C109 277 166 310 267 279C373 247 425 190 560 203V360H0V303Z" fill="#99F6E4" fill-opacity=".5"/>
+  <text x="40" y="70" fill="white" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700">SeeV</text>
+  <text x="40" y="118" fill="white" fill-opacity=".76" font-family="Arial, Helvetica, sans-serif" font-size="18">Evaluation dashboard</text>
+  <rect x="40" y="156" width="112" height="112" rx="18" fill="white" fill-opacity=".16"/>
+  <rect x="184" y="156" width="336" height="22" rx="11" fill="white" fill-opacity=".82"/>
+  <rect x="184" y="196" width="286" height="18" rx="9" fill="white" fill-opacity=".46"/>
+  <rect x="184" y="230" width="236" height="18" rx="9" fill="white" fill-opacity=".36"/>
+  <circle cx="96" cy="212" r="34" fill="#CCFBF1"/>
+  <path d="M79 213L91 225L116 196" stroke="#0F766E" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

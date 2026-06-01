@@ -1,0 +1,200 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  PENDING
+  APPROVED
+  ACTIVE
+  REJECTED
+  DISABLED
+}
+
+enum TokenType {
+  SET_PASSWORD
+  RESET_PASSWORD
+}
+
+enum RequestStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+}
+
+enum ProjectFileKind {
+  CLINICAL_TEXT
+  MODEL_PREDICTION
+  IMAGE
+}
+
+enum ProjectShareStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  name           String
+  organization   String
+  role           UserRole  @default(USER)
+  status         UserStatus @default(PENDING)
+  passwordHash   String?
+  approvedAt     DateTime?
+  lastLoginAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tokens         AuthToken[]
+  requests       WorkspaceRequest[]
+  ownedProjects  Project[]       @relation("ProjectOwner")
+  projectShares  ProjectShare[]  @relation("ProjectShareRecipient")
+  caseAnnotations ProjectCaseAnnotation[]
+  predictionEdits ProjectCasePredictionEdit[]
+
+  @@index([status])
+  @@index([organization])
+}
+
+model AuthToken {
+  id         String    @id @default(cuid())
+  tokenHash  String    @unique
+  type       TokenType
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@index([expiresAt])
+}
+
+model WorkspaceRequest {
+  id          String        @id @default(cuid())
+  title       String
+  category    String
+  details     String
+  status      RequestStatus @default(OPEN)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status])
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  name        String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  ownerId     String
+  owner       User          @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  files       ProjectFile[]
+  shares      ProjectShare[]
+  cases       ProjectCase[]
+
+  @@index([ownerId, createdAt])
+}
+
+model ProjectFile {
+  id          String          @id @default(cuid())
+  fileName    String
+  relativePath String?
+  storagePath String
+  mimeType    String
+  size        Int
+  kind        ProjectFileKind
+  createdAt   DateTime        @default(now())
+
+  projectId   String
+  project     Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  cases       ProjectCase[]
+
+  @@index([projectId])
+  @@index([kind])
+}
+
+model ProjectCase {
+  id                 String       @id @default(cuid())
+  registrationNumber String
+  imageId            String?
+  imageFolder        String?
+  clinicalData       Json
+  predictionData     Json
+  createdAt          DateTime     @default(now())
+
+  projectId          String
+  project            Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  imageFileId        String?
+  imageFile          ProjectFile? @relation(fields: [imageFileId], references: [id], onDelete: SetNull)
+  annotations        ProjectCaseAnnotation[]
+  predictionEdits    ProjectCasePredictionEdit[]
+
+  @@index([projectId])
+  @@index([registrationNumber])
+  @@index([imageId, imageFolder])
+}
+
+model ProjectCaseAnnotation {
+  id          String      @id @default(cuid())
+  annotations Json
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  caseId      String
+  case        ProjectCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([caseId, userId])
+  @@index([userId])
+}
+
+model ProjectCasePredictionEdit {
+  id          String      @id @default(cuid())
+  data        Json
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  caseId      String
+  case        ProjectCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([caseId, userId])
+  @@index([userId])
+}
+
+model ProjectShare {
+  id            String             @id @default(cuid())
+  status        ProjectShareStatus @default(PENDING)
+  message       String?
+  createdAt     DateTime           @default(now())
+  respondedAt   DateTime?
+
+  projectId     String
+  project       Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sharedWithId  String
+  sharedWith    User               @relation("ProjectShareRecipient", fields: [sharedWithId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, sharedWithId])
+  @@index([sharedWithId, status])
+  @@index([projectId])
+}

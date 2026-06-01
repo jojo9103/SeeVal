@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SeeVal",
-  description: "See Validation",
+  title: "SeeV",
+  description: "SeeV validation workspace",
 };
 
 export default function RootLayout({
