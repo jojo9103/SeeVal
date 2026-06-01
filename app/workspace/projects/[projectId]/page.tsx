@@ -77,6 +77,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
       id: projectId,
       OR: [
         { ownerId: user.id },
+        ...(user.role === "ADMIN" ? [{ id: projectId }] : []),
         {
           shares: {
             some: {
@@ -115,6 +116,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
   }
 
   const isOwner = project.ownerId === user.id;
+  const canReview = isOwner || user.role === "ADMIN";
   const imageLookup = new Map(
     project.files
       .filter((file) => file.kind === "IMAGE")
@@ -201,6 +203,14 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {canReview && (
+                <Link
+                  href={`/workspace/projects/${project.id}/review`}
+                  className="inline-flex h-10 items-center justify-center rounded-md border border-amber-300/20 bg-amber-300/10 px-4 text-sm font-medium text-amber-50 transition hover:bg-amber-300/18"
+                >
+                  평가 취합
+                </Link>
+              )}
               {isOwner && <ProjectDataUploadButton projectId={project.id} />}
               <div className="rounded-xl border border-white/12 bg-white/[0.06] px-4 py-3 text-sm text-white/58">
                 파일 {project.files.length}개

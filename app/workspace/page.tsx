@@ -232,7 +232,7 @@ export default async function WorkspacePage() {
   const [ownedProjects, sharedProjects, shareRequests, shareUsers] =
     await Promise.all([
       prisma.project.findMany({
-        where: { ownerId: user.id },
+        where: user.role === "ADMIN" ? {} : { ownerId: user.id },
         include: {
           files: true,
           owner: { select: { name: true } },
@@ -240,22 +240,24 @@ export default async function WorkspacePage() {
         },
         orderBy: { createdAt: "desc" },
       }),
-      prisma.project.findMany({
-        where: {
-          shares: {
-            some: {
-              sharedWithId: user.id,
-              status: "ACCEPTED",
+      user.role === "ADMIN"
+        ? Promise.resolve([])
+        : prisma.project.findMany({
+            where: {
+              shares: {
+                some: {
+                  sharedWithId: user.id,
+                  status: "ACCEPTED",
+                },
+              },
             },
-          },
-        },
-        include: {
-          files: true,
-          owner: { select: { name: true } },
-          shares: { select: { status: true } },
-        },
-        orderBy: { createdAt: "desc" },
-      }),
+            include: {
+              files: true,
+              owner: { select: { name: true } },
+              shares: { select: { status: true } },
+            },
+            orderBy: { createdAt: "desc" },
+          }),
       prisma.projectShare.findMany({
         where: {
           sharedWithId: user.id,
@@ -292,6 +294,7 @@ export default async function WorkspacePage() {
     name: project.name,
     ownerName: project.owner.name,
     ownedByMe: project.ownerId === user.id,
+    canReview: project.ownerId === user.id || user.role === "ADMIN",
     createdAt: project.createdAt.toISOString(),
     pendingShareCount: project.shares.filter((share) => share.status === "PENDING")
       .length,

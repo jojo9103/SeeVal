@@ -47,6 +47,7 @@ type Project = {
   name: string;
   ownerName: string;
   ownedByMe: boolean;
+  canReview: boolean;
   createdAt: string;
   files: ProjectFile[];
   pendingShareCount: number;
@@ -521,6 +522,17 @@ export function ProjectWorkspacePanel({
                   >
                     <a href={`/workspace/projects/${project.id}`}>들어가기</a>
                   </Button>
+                  {project.canReview && (
+                    <Button
+                      asChild
+                      className="gap-2 border border-amber-300/20 bg-amber-300/10 text-amber-50 hover:bg-amber-300/18"
+                    >
+                      <a href={`/workspace/projects/${project.id}/review`}>
+                        <ChartNoAxesCombined className="h-4 w-4" />
+                        평가 취합
+                      </a>
+                    </Button>
+                  )}
                   {project.ownedByMe && (
                     <Button
                       type="button"
