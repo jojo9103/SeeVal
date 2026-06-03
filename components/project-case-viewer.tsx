@@ -4,8 +4,8 @@ import { useMemo, useState } from "react";
 
 import { uniqueColumns } from "@/components/project/data-utils";
 import { AnnotatableImageViewer } from "@/components/project/image-viewer/annotatable-image-viewer";
-import { ClinicalDataPanel } from "@/components/project/tables/clinical-data-panel";
 import { PredictionDataTable } from "@/components/project/tables/prediction-data-table";
+import { SelectedCaseDataPanel } from "@/components/project/tables/selected-case-data-panel";
 import type { CaseRow } from "@/components/project/types";
 
 export function ProjectCaseViewer({
@@ -65,13 +65,21 @@ export function ProjectCaseViewer({
 
   return (
     <div className="mt-8 space-y-6">
-      <AnnotatableImageViewer
-        key={selectedCase?.id ?? "empty-viewer"}
-        projectId={projectId}
-        caseRow={selectedCase}
-      />
+      <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_420px]">
+        <AnnotatableImageViewer
+          key={selectedCase?.id ?? "empty-viewer"}
+          projectId={projectId}
+          caseRow={selectedCase}
+        />
 
-      <ClinicalDataPanel caseRow={selectedCase} />
+        <SelectedCaseDataPanel
+          key={selectedCase?.id ?? "empty-data-panel"}
+          projectId={projectId}
+          currentUserId={currentUserId}
+          caseRow={selectedCase}
+          onUpdatePrediction={updatePredictionEdit}
+        />
+      </div>
 
       <PredictionDataTable
         projectId={projectId}

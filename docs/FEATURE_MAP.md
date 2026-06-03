@@ -6,8 +6,9 @@
 
 - `app/workspace/page.tsx`
   - 로그인한 사용자의 workspace 첫 화면입니다.
-  - 프로젝트 생성, 프로젝트 목록, 공유 요청, 평가 취합 진입 버튼을 다룹니다.
+  - 프로젝트 생성, 프로젝트 목록, Notification, 평가 취합 진입 버튼을 다룹니다.
   - ADMIN은 전체 프로젝트를 볼 수 있고, 프로젝트 소유자와 ADMIN은 평가 취합으로 들어갈 수 있습니다.
+  - 공유 받은 요청은 Notification에서 수락/거절하며, ADMIN 공지사항도 같은 Notification에서 확인합니다.
 
 - `app/workspace/projects/[projectId]/page.tsx`
   - 단일 프로젝트 평가 화면입니다.
@@ -37,8 +38,10 @@
 
 - `components/project/image-viewer/annotatable-image-viewer.tsx`
   - 이미지 표시, fit-to-view, wheel zoom, pan, minimap, annotation 생성/수정/삭제/저장을 담당합니다.
+  - 초기 fit 상태에서도 이미지가 viewer 영역보다 큰 경우 드래그로 위치를 이동할 수 있습니다.
   - polygon은 클릭 방식과 드래그 방식을 모두 지원합니다.
   - rectangle은 생성, 이동, 크기 조절, 삭제를 지원합니다.
+  - annotation 목록은 Image Viewer 하단에 표시하며, 각 annotation 이름을 수정할 수 있습니다.
   - annotation은 이미지 원본 pixel 좌표 기준으로 저장됩니다.
 
 - `components/project/image-viewer/geometry.ts`
@@ -65,6 +68,7 @@
   - 평가 취합 페이지의 테이블입니다.
   - 여러 column을 체크박스로 선택할 수 있습니다.
   - 각 column은 원본값과 `column name (공유받은사람이름)` 형태의 사용자별 편집값으로 펼쳐집니다.
+  - 저장된 annotation 위치도 사용자별로 취합하며, rectangle/polygon 좌표를 이미지 pixel 기준으로 보여줍니다.
 
 - `app/api/projects/[projectId]/cases/[caseId]/prediction/route.ts`
   - 사용자별 모델예측 수정값 저장 API입니다.
@@ -87,8 +91,16 @@
 ## Sharing And Aggregation
 
 - `components/workspace-actions.tsx`
-  - workspace의 프로젝트 생성, 공유하기, 공유 요청 수락/거절 UI를 담당합니다.
-  - 프로젝트 카드에서 `들어가기`, `평가 취합`, `공유하기` 버튼을 보여줍니다.
+  - workspace의 프로젝트 생성, 공유하기, Notification, 프로젝트별 공유 요청 상황 UI를 담당합니다.
+  - 프로젝트 카드에서 `들어가기`, `평가 취합`, `공유요청상황`, `공유하기` 버튼을 보여줍니다.
+  - `NotificationCenter`는 받은 공유 요청 수락/거절과 ADMIN 공지사항 확인을 담당합니다.
+  - 공유 대상은 기본 리스트를 노출하지 않고 이름/이메일/소속 검색 결과로만 선택합니다.
+  - 공유 요청 완료 후에는 시작하기 섹션 안이 아니라 우측 상단 배너로 결과를 표시합니다.
+  - `공유요청상황` 버튼은 해당 프로젝트의 요청 상태와 공유 허가된 사용자 목록을 따로 보여줍니다.
+
+- `app/admin/accounts/page.tsx`
+  - 관리자 계정 승인/거절, ADMIN 업로드 프로젝트 확인, ADMIN 공지사항 등록을 담당합니다.
+  - 등록된 ADMIN 공지사항은 workspace Notification에 표시됩니다.
 
 - `prisma/schema.prisma`
   - 핵심 모델:
@@ -96,7 +108,9 @@
     - `ProjectShare`
     - `ProjectCaseAnnotation`
     - `ProjectCasePredictionEdit`
+    - `AdminNotice`
   - annotation과 prediction edit는 모두 `caseId + userId` 기준으로 사용자별 저장됩니다.
+  - `AdminNotice`는 ADMIN 공지사항을 저장하고 작성자 USER와 연결됩니다.
 
 ## Maintenance Notes
 
@@ -104,6 +118,7 @@
 - 모델예측 테이블 관련 변경은 `components/project/tables/prediction-data-table.tsx`를 확인하세요.
 - 평가 취합 관련 변경은 `components/project-review-table.tsx`와 review route를 확인하세요.
 - 데이터 파싱/업로드 문제는 `lib/project-upload.ts`를 확인하세요.
+- Workspace 공유/Notification 관련 변경은 `components/workspace-actions.tsx`, `app/workspace/page.tsx`, `app/admin/accounts/page.tsx`를 함께 확인하세요.
 - DB 구조 변경 시 `prisma/schema.prisma` 수정 후 `npx prisma db push`와 `npx prisma generate`가 필요합니다.
 
 ## Known Build Warning

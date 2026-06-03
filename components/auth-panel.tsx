@@ -111,7 +111,18 @@ export function AuthPanel({ initialView }: { initialView: AuthView }) {
     });
     const result = (await response.json()) as { message?: string };
 
-    setNotice(result.message ?? "가입 신청 처리 중 문제가 발생했습니다.");
+    if (response.ok) {
+      setView("login");
+      setPassword("");
+      setConfirmPassword("");
+      setNotice(
+        result.message ??
+          "가입 신청이 완료되었습니다. 관리자 승인 후 로그인할 수 있습니다."
+      );
+    } else {
+      setNotice(result.message ?? "가입 신청 처리 중 문제가 발생했습니다.");
+    }
+
     setIsSubmitting(false);
   }
 

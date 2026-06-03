@@ -11,6 +11,13 @@ export const metadata: Metadata = {
   title: "SeeV Admin",
 };
 
+function formatDate(date: Date) {
+  return new Intl.DateTimeFormat("ko-KR", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
 async function approveUser(formData: FormData) {
   "use server";
 
@@ -107,11 +114,52 @@ async function logout() {
   redirect("/auth");
 }
 
+async function createAdminNotice(formData: FormData) {
+  "use server";
+
+  const admin = await requireAdmin();
+  const title = String(formData.get("title") ?? "").trim();
+  const message = String(formData.get("message") ?? "").trim();
+
+  if (!title || !message) {
+    return;
+  }
+
+  await prisma.adminNotice.create({
+    data: {
+      title,
+      message,
+      authorId: admin.id,
+    },
+  });
+
+  revalidatePath("/admin/accounts");
+  revalidatePath("/workspace");
+}
+
 export default async function AdminAccountsPage() {
   const admin = await requireAdmin();
-  const users = await prisma.user.findMany({
-    orderBy: [{ status: "asc" }, { createdAt: "desc" }],
-  });
+  const [users, adminProjects, adminNotices] = await Promise.all([
+    prisma.user.findMany({
+      orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+    }),
+    prisma.project.findMany({
+      where: { ownerId: admin.id },
+      include: {
+        files: { select: { kind: true } },
+        cases: { select: { id: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 6,
+    }),
+    prisma.adminNotice.findMany({
+      include: {
+        author: { select: { name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    }),
+  ]);
   const pendingUsers = users.filter((user) => user.status === "PENDING");
   const tableUsers = users.map((user) => ({
     id: user.id,
@@ -143,7 +191,13 @@ export default async function AdminAccountsPage() {
               href="/workspace"
               className="rounded-md border border-teal-200/30 bg-teal-300/12 px-4 py-2 text-sm font-medium text-teal-50 transition hover:bg-teal-300/22"
             >
-              데이터 업로드
+              Workspace
+            </Link>
+            <Link
+              href="/workspace"
+              className="rounded-md border border-amber-300/25 bg-amber-300/10 px-4 py-2 text-sm font-medium text-amber-50 transition hover:bg-amber-300/18"
+            >
+              ADMIN 업로드 데이터
             </Link>
             <form action={logout}>
               <button className="rounded-md border border-white/14 px-4 py-2 text-sm text-white/72 transition hover:bg-white/10 hover:text-white">
@@ -168,6 +222,144 @@ export default async function AdminAccountsPage() {
               {users.filter((user) => user.role === "ADMIN").length}
             </p>
           </div>
+        </section>
+
+        <section className="mt-8 rounded-2xl border border-white/12 bg-white/[0.06] p-5">
+          <div>
+            <h2 className="text-lg font-semibold">ADMIN 공지사항</h2>
+            <p className="mt-2 text-sm text-white/54">
+              Workspace Notification에 표시될 공지를 작성합니다.
+            </p>
+          </div>
+          <form action={createAdminNotice} className="mt-5 grid gap-4">
+            <label className="block text-sm font-medium text-white/76">
+              제목
+              <input
+                name="title"
+                required
+                placeholder="공지 제목"
+                className="mt-2 h-11 w-full rounded-lg border border-white/12 bg-white/[0.07] px-3 text-sm text-white outline-none transition placeholder:text-white/35 focus:border-teal-200/55 focus:ring-4 focus:ring-teal-300/10"
+              />
+            </label>
+            <label className="block text-sm font-medium text-white/76">
+              내용
+              <textarea
+                name="message"
+                required
+                rows={3}
+                placeholder="공지 내용을 입력하세요."
+                className="mt-2 w-full resize-y rounded-lg border border-white/12 bg-white/[0.07] px-3 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-white/35 focus:border-teal-200/55 focus:ring-4 focus:ring-teal-300/10"
+              />
+            </label>
+            <div className="flex justify-end">
+              <button className="rounded-md border border-teal-200/30 bg-teal-300/12 px-4 py-2 text-sm font-medium text-teal-50 transition hover:bg-teal-300/22">
+                공지 등록
+              </button>
+            </div>
+          </form>
+
+          <div className="mt-5 grid gap-3">
+            {adminNotices.length === 0 && (
+              <div className="rounded-xl border border-dashed border-white/12 p-5 text-center text-sm text-white/45">
+                등록된 공지가 없습니다.
+              </div>
+            )}
+            {adminNotices.map((notice) => (
+              <article
+                key={notice.id}
+                className="rounded-xl border border-white/10 bg-[#171717]/45 p-4"
+              >
+                <p className="font-medium text-white">{notice.title}</p>
+                <p className="mt-1 text-xs text-white/38">
+                  {notice.author.name} · {formatDate(notice.createdAt)}
+                </p>
+                <p className="mt-3 text-sm leading-6 text-white/60">
+                  {notice.message}
+                </p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-8 rounded-2xl border border-white/12 bg-white/[0.06] p-5">
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">ADMIN 업로드 데이터</h2>
+              <p className="mt-2 text-sm text-white/54">
+                현재 ADMIN 계정이 업로드한 프로젝트를 바로 확인합니다.
+              </p>
+            </div>
+            <Link
+              href="/workspace"
+              className="inline-flex h-10 w-fit items-center justify-center rounded-md border border-teal-200/25 bg-teal-300/12 px-4 text-sm font-medium text-teal-50 transition hover:bg-teal-300/22"
+            >
+              전체 프로젝트 보기
+            </Link>
+          </div>
+
+          {adminProjects.length > 0 ? (
+            <div className="mt-5 grid gap-3 lg:grid-cols-2">
+              {adminProjects.map((project) => {
+                const clinicalCount = project.files.filter(
+                  (file) => file.kind === "CLINICAL_TEXT"
+                ).length;
+                const predictionCount = project.files.filter(
+                  (file) => file.kind === "MODEL_PREDICTION"
+                ).length;
+                const imageCount = project.files.filter(
+                  (file) => file.kind === "IMAGE"
+                ).length;
+
+                return (
+                  <article
+                    key={project.id}
+                    className="rounded-xl border border-white/10 bg-[#171717]/45 p-4"
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <h3 className="font-medium text-white">
+                          {project.name}
+                        </h3>
+                        <p className="mt-1 text-sm text-white/45">
+                          {formatDate(project.createdAt)} · 샘플{" "}
+                          {project.cases.length}개
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2 text-xs text-white/58">
+                          <span className="rounded-md border border-white/10 bg-white/[0.05] px-2 py-1">
+                            임상 {clinicalCount}
+                          </span>
+                          <span className="rounded-md border border-white/10 bg-white/[0.05] px-2 py-1">
+                            모델 {predictionCount}
+                          </span>
+                          <span className="rounded-md border border-white/10 bg-white/[0.05] px-2 py-1">
+                            이미지 {imageCount}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Link
+                          href={`/workspace/projects/${project.id}`}
+                          className="inline-flex h-9 items-center justify-center rounded-md border border-white/14 bg-white/[0.07] px-3 text-sm font-medium text-white/78 transition hover:bg-white/12 hover:text-white"
+                        >
+                          프로젝트 보기
+                        </Link>
+                        <Link
+                          href={`/workspace/projects/${project.id}/review`}
+                          className="inline-flex h-9 items-center justify-center rounded-md border border-amber-300/20 bg-amber-300/10 px-3 text-sm font-medium text-amber-50 transition hover:bg-amber-300/18"
+                        >
+                          평가 취합
+                        </Link>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="mt-5 rounded-xl border border-dashed border-white/12 bg-[#171717]/35 p-6 text-center text-sm text-white/45">
+              현재 ADMIN 계정으로 업로드한 프로젝트가 없습니다.
+            </div>
+          )}
         </section>
 
         <section className="mt-8 overflow-hidden rounded-2xl border border-white/12 bg-white/[0.06]">

@@ -156,7 +156,14 @@ export function ProjectDataUploadButton({ projectId }: { projectId: string }) {
       </Button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/65 px-4 py-8 backdrop-blur-sm">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/65 px-4 py-8 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeModal();
+            }
+          }}
+        >
           <section className="w-full max-w-2xl rounded-2xl border border-white/14 bg-[#1f1f1f] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.5)]">
             <div className="flex items-start justify-between gap-4">
               <div>

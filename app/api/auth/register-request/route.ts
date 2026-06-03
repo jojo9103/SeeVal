@@ -73,6 +73,6 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     message:
-      "가입 신청이 접수되었습니다. 관리자 승인 후 로그인할 수 있습니다.",
+      "가입 신청이 완료되었습니다. 관리자 승인 후 로그인할 수 있습니다.",
   });
 }

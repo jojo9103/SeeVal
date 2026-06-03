@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import bcrypt from "bcryptjs";
 
 import {
   EditProfileButton,
+  NotificationCenter,
   ProjectWorkspacePanel,
-  ShareRequestsPanel,
   type WorkspaceActionState,
 } from "@/components/workspace-actions";
-import { requireUser } from "@/lib/auth";
+import { clearSessionCookie, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export const metadata: Metadata = {
@@ -16,6 +17,13 @@ export const metadata: Metadata = {
 };
 
 const passwordPattern = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
+
+async function logout() {
+  "use server";
+
+  await clearSessionCookie();
+  redirect("/auth");
+}
 
 async function updateProfile(
   _state: WorkspaceActionState,
@@ -229,7 +237,14 @@ async function rejectShare(formData: FormData) {
 
 export default async function WorkspacePage() {
   const user = await requireUser();
-  const [ownedProjects, sharedProjects, shareRequests, shareUsers] =
+  const [
+    ownedProjects,
+    sharedProjects,
+    shareRequests,
+    outgoingShares,
+    adminNotices,
+    shareUsers,
+  ] =
     await Promise.all([
       prisma.project.findMany({
         where: user.role === "ADMIN" ? {} : { ownerId: user.id },
@@ -274,6 +289,36 @@ export default async function WorkspacePage() {
         },
         orderBy: { createdAt: "desc" },
       }),
+      prisma.projectShare.findMany({
+        where: {
+          project: {
+            ownerId: user.id,
+          },
+        },
+        include: {
+          project: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          sharedWith: {
+            select: {
+              name: true,
+              email: true,
+              organization: true,
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.adminNotice.findMany({
+        include: {
+          author: { select: { name: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+      }),
       prisma.user.findMany({
         where: {
           id: { not: user.id },
@@ -289,22 +334,6 @@ export default async function WorkspacePage() {
         orderBy: { name: "asc" },
       }),
     ]);
-  const projects = [...ownedProjects, ...sharedProjects].map((project) => ({
-    id: project.id,
-    name: project.name,
-    ownerName: project.owner.name,
-    ownedByMe: project.ownerId === user.id,
-    canReview: project.ownerId === user.id || user.role === "ADMIN",
-    createdAt: project.createdAt.toISOString(),
-    pendingShareCount: project.shares.filter((share) => share.status === "PENDING")
-      .length,
-    files: project.files.map((file) => ({
-      id: file.id,
-      fileName: file.fileName,
-      kind: file.kind,
-      size: file.size,
-    })),
-  }));
   const incomingShareRequests = shareRequests.map((share) => ({
     id: share.id,
     message: share.message,
@@ -314,6 +343,48 @@ export default async function WorkspacePage() {
       name: share.project.name,
       ownerName: share.project.owner.name,
     },
+  }));
+  const outgoingShareStatuses = outgoingShares.map((share) => ({
+    id: share.id,
+    status: share.status,
+    message: share.message,
+    createdAt: share.createdAt.toISOString(),
+    respondedAt: share.respondedAt?.toISOString() ?? null,
+    project: {
+      id: share.project.id,
+      name: share.project.name,
+    },
+    sharedWith: {
+      name: share.sharedWith.name,
+      email: share.sharedWith.email,
+      organization: share.sharedWith.organization,
+    },
+  }));
+  const notices = adminNotices.map((notice) => ({
+    id: notice.id,
+    title: notice.title,
+    message: notice.message,
+    createdAt: notice.createdAt.toISOString(),
+    authorName: notice.author.name,
+  }));
+  const projects = [...ownedProjects, ...sharedProjects].map((project) => ({
+    id: project.id,
+    name: project.name,
+    ownerName: project.owner.name,
+    ownedByMe: project.ownerId === user.id,
+    canReview: project.ownerId === user.id || user.role === "ADMIN",
+    createdAt: project.createdAt.toISOString(),
+    pendingShareCount: project.shares.filter((share) => share.status === "PENDING")
+      .length,
+    shareStatuses: outgoingShareStatuses.filter(
+      (share) => share.project.id === project.id
+    ),
+    files: project.files.map((file) => ({
+      id: file.id,
+      fileName: file.fileName,
+      kind: file.kind,
+      size: file.size,
+    })),
   }));
   const accessibleProjectCount = projects.length;
 
@@ -337,7 +408,20 @@ export default async function WorkspacePage() {
               {user.name}님, 환영합니다. {user.organization} 계정으로 접속했습니다.
             </p>
           </div>
-          <EditProfileButton user={user} action={updateProfile} />
+          <div className="flex flex-wrap gap-2">
+            <NotificationCenter
+              requests={incomingShareRequests}
+              notices={notices}
+              acceptShare={acceptShare}
+              rejectShare={rejectShare}
+            />
+            <EditProfileButton user={user} action={updateProfile} />
+            <form action={logout}>
+              <button className="h-10 rounded-md border border-white/14 px-4 text-sm font-medium text-white/72 transition hover:bg-white/10 hover:text-white">
+                Logout
+              </button>
+            </form>
+          </div>
         </header>
 
         <section className="mt-8 grid gap-4 md:grid-cols-3">
@@ -375,11 +459,6 @@ export default async function WorkspacePage() {
           requestProjectShare={requestProjectShare}
         />
 
-        <ShareRequestsPanel
-          requests={incomingShareRequests}
-          acceptShare={acceptShare}
-          rejectShare={rejectShare}
-        />
       </div>
     </main>
   );

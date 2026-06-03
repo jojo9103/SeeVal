@@ -62,6 +62,7 @@ model User {
   projectShares  ProjectShare[]  @relation("ProjectShareRecipient")
   caseAnnotations ProjectCaseAnnotation[]
   predictionEdits ProjectCasePredictionEdit[]
+  adminNotices    AdminNotice[]   @relation("AdminNoticeAuthor")
 
   @@index([status])
   @@index([organization])
@@ -197,4 +198,17 @@ model ProjectShare {
   @@unique([projectId, sharedWithId])
   @@index([sharedWithId, status])
   @@index([projectId])
+}
+
+model AdminNotice {
+  id        String   @id @default(cuid())
+  title     String
+  message   String
+  createdAt DateTime @default(now())
+
+  authorId  String
+  author    User     @relation("AdminNoticeAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([authorId])
 }

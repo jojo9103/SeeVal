@@ -17,7 +17,30 @@ type ReviewRow = {
     userId: string;
     data: Record<string, string>;
   }>;
+  annotations: Array<{
+    userId: string;
+    userName: string;
+    userEmail: string;
+    annotations: ReviewAnnotation[];
+  }>;
 };
+
+type ReviewAnnotation =
+  | {
+      id: string;
+      name?: string;
+      type: "rectangle";
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }
+  | {
+      id: string;
+      name?: string;
+      type: "polygon";
+      points: Array<{ x: number; y: number }>;
+    };
 
 function uniqueColumns(rows: ReviewRow[]) {
   const columns = new Set<string>();
@@ -33,6 +56,25 @@ function uniqueColumns(rows: ReviewRow[]) {
 
 function cellValue(value: string | undefined | null) {
   return value || "-";
+}
+
+function annotationName(annotation: ReviewAnnotation, index: number) {
+  return (
+    annotation.name ||
+    `${annotation.type === "polygon" ? "Polygon" : "Rectangle"} ${index + 1}`
+  );
+}
+
+function annotationPosition(annotation: ReviewAnnotation) {
+  if (annotation.type === "rectangle") {
+    return `x ${Math.round(annotation.x)}, y ${Math.round(
+      annotation.y
+    )}, w ${Math.round(annotation.width)}, h ${Math.round(annotation.height)}`;
+  }
+
+  return annotation.points
+    .map((point) => `(${Math.round(point.x)}, ${Math.round(point.y)})`)
+    .join(" ");
 }
 
 export function ProjectReviewTable({
@@ -68,6 +110,7 @@ export function ProjectReviewTable({
   }
 
   return (
+    <>
     <section className="mt-8 rounded-2xl border border-white/12 bg-white/[0.06] p-5">
       <div className="flex flex-col gap-4">
         <div>
@@ -196,5 +239,77 @@ export function ProjectReviewTable({
         </table>
       </div>
     </section>
+    <section className="mt-6 rounded-2xl border border-white/12 bg-white/[0.06] p-5">
+      <div>
+        <h2 className="text-lg font-semibold">Annotation 위치 취합</h2>
+        <p className="mt-2 text-sm text-white/54">
+          공유받은 사용자가 저장한 annotation 위치를 이미지 pixel 좌표 기준으로 확인합니다.
+        </p>
+      </div>
+
+      <div className="mt-5 max-h-[560px] overflow-auto rounded-xl border border-white/10">
+        <table className="w-full min-w-[980px] text-left text-sm">
+          <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#202020] text-white/50">
+            <tr>
+              <th className="px-4 py-3 font-medium">등록번호</th>
+              <th className="px-4 py-3 font-medium">image_id</th>
+              <th className="px-4 py-3 font-medium">사용자</th>
+              <th className="px-4 py-3 font-medium">Annotation</th>
+              <th className="px-4 py-3 font-medium">종류</th>
+              <th className="px-4 py-3 font-medium">위치</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/8">
+            {rows.flatMap((row) =>
+              row.annotations.flatMap((userAnnotation) =>
+                userAnnotation.annotations.map((annotation, index) => (
+                  <tr
+                    key={`${row.id}-${userAnnotation.userId}-${annotation.id}`}
+                    className="align-top text-white/72"
+                  >
+                    <td className="px-4 py-4 font-medium text-white">
+                      {row.registrationNumber}
+                    </td>
+                    <td className="px-4 py-4">{cellValue(row.imageId)}</td>
+                    <td className="px-4 py-4">
+                      <span className="block text-white">
+                        {userAnnotation.userName}
+                      </span>
+                      <span className="mt-1 block text-xs text-white/38">
+                        {userAnnotation.userEmail}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4">
+                      {annotationName(annotation, index)}
+                    </td>
+                    <td className="px-4 py-4">
+                      {annotation.type === "polygon" ? "Polygon" : "Rectangle"}
+                    </td>
+                    <td className="max-w-xl px-4 py-4 font-mono text-xs leading-5 text-white/64">
+                      {annotationPosition(annotation)}
+                    </td>
+                  </tr>
+                ))
+              )
+            )}
+            {rows.every((row) =>
+              row.annotations.every(
+                (userAnnotation) => userAnnotation.annotations.length === 0
+              )
+            ) && (
+              <tr>
+                <td
+                  colSpan={6}
+                  className="px-4 py-10 text-center text-white/45"
+                >
+                  취합할 annotation이 없습니다.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    </>
   );
 }

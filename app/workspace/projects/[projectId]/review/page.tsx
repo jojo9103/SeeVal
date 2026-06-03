@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import { ProjectReviewTable } from "@/components/project-review-table";
 import { requireUser } from "@/lib/auth";
+import { normalizeAnnotations } from "@/lib/project-annotations";
 import { prisma } from "@/lib/prisma";
 
 export const metadata: Metadata = {
@@ -63,6 +64,17 @@ export default async function ProjectReviewPage({
       cases: {
         include: {
           predictionEdits: true,
+          annotations: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                },
+              },
+            },
+          },
         },
         orderBy: { createdAt: "desc" },
       },
@@ -86,6 +98,12 @@ export default async function ProjectReviewPage({
     predictionEdits: projectCase.predictionEdits.map((edit) => ({
       userId: edit.userId,
       data: toStringRecord(edit.data),
+    })),
+    annotations: projectCase.annotations.map((annotation) => ({
+      userId: annotation.userId,
+      userName: annotation.user.name,
+      userEmail: annotation.user.email,
+      annotations: normalizeAnnotations(annotation.annotations),
     })),
   }));
 
