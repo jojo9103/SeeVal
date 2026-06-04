@@ -26,6 +26,7 @@ async function requireProjectAccess(projectId: string, caseId: string) {
       id: caseId,
       projectId,
       project: {
+        deletedAt: null,
         OR: [
           { ownerId: user.id },
           {

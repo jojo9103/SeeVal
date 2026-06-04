@@ -47,6 +47,20 @@ function verifySignature(value: string, signature: string) {
   );
 }
 
+function shouldUseSecureSessionCookie() {
+  const explicitValue = process.env.SESSION_COOKIE_SECURE?.toLowerCase();
+
+  if (explicitValue === "true") {
+    return true;
+  }
+
+  if (explicitValue === "false") {
+    return false;
+  }
+
+  return process.env.NODE_ENV === "production";
+}
+
 export function createSessionToken(payload: Omit<SessionPayload, "exp">) {
   const sessionPayload: SessionPayload = {
     ...payload,
@@ -83,7 +97,7 @@ export async function setSessionCookie(payload: Omit<SessionPayload, "exp">) {
   cookieStore.set(sessionCookieName, createSessionToken(payload), {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureSessionCookie(),
     maxAge: sessionMaxAgeSeconds,
     path: "/",
   });

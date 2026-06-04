@@ -3,11 +3,16 @@ import path from "path";
 import * as XLSX from "xlsx";
 
 import { prisma } from "@/lib/prisma";
+import {
+  getProjectFileUrl,
+  getProjectUploadDir,
+  getProjectUploadFilePath,
+  getStoredProjectFilePath,
+} from "@/lib/project-storage";
 
-const uploadRoot = path.join(process.cwd(), "public", "uploads", "projects");
-const registrationColumn = "등록번호";
 const imageIdColumn = "image_id";
 const imageFolderColumn = "image_folder";
+const fallbackRegistrationColumns = ["등록번호", "registrationNumber", "id"];
 const imageExtensions = new Set([
   ".avif",
   ".bmp",
@@ -22,6 +27,7 @@ const imageExtensions = new Set([
 
 type DataRow = Record<string, string>;
 type ProjectFileKind = "CLINICAL_TEXT" | "MODEL_PREDICTION" | "IMAGE";
+type ProjectDataClient = Pick<typeof prisma, "projectFile" | "projectCase">;
 type SavedProjectFile = {
   id?: string;
   fileName: string;
@@ -179,7 +185,7 @@ async function parseSavedDataFiles(files: SavedProjectFile[]) {
   const rows: DataRow[] = [];
 
   for (const file of files) {
-    const filePath = path.join(process.cwd(), "public", file.storagePath);
+    const filePath = getStoredProjectFilePath(file.storagePath);
     const extension = path.extname(file.fileName).toLowerCase();
 
     if (extension === ".xlsx" || extension === ".xls") {
@@ -297,6 +303,105 @@ function findImageFile(
   );
 }
 
+function rowColumns(rows: DataRow[]) {
+  const columns = new Set<string>();
+
+  for (const row of rows) {
+    for (const [key, value] of Object.entries(row)) {
+      if (value) {
+        columns.add(key);
+      }
+    }
+  }
+
+  return columns;
+}
+
+function sharedColumns(leftRows: DataRow[], rightRows: DataRow[]) {
+  const leftColumns = rowColumns(leftRows);
+  const rightColumns = rowColumns(rightRows);
+
+  return [...leftColumns].filter((column) => rightColumns.has(column));
+}
+
+function normalizeMatchValue(column: string, value: string) {
+  if (column === imageFolderColumn || column === imageIdColumn) {
+    return normalizeImagePart(value);
+  }
+
+  return value.trim().toLowerCase();
+}
+
+function matchingColumnScore(
+  clinicalRow: DataRow,
+  predictionRow: DataRow,
+  columns: string[]
+) {
+  let matched = 0;
+  let mismatched = 0;
+
+  for (const column of columns) {
+    const predictionValue = predictionRow[column];
+    const clinicalValue = clinicalRow[column];
+
+    if (!predictionValue || !clinicalValue) {
+      continue;
+    }
+
+    if (
+      normalizeMatchValue(column, clinicalValue) ===
+      normalizeMatchValue(column, predictionValue)
+    ) {
+      matched += 1;
+      continue;
+    }
+
+    mismatched += 1;
+  }
+
+  return { matched, mismatched };
+}
+
+function matchingClinicalRow(
+  clinicalRows: DataRow[],
+  predictionRow: DataRow,
+  commonColumns: string[]
+) {
+  if (commonColumns.length === 0) {
+    return {};
+  }
+
+  const candidates = clinicalRows
+    .map((clinicalRow) => ({
+      clinicalRow,
+      score: matchingColumnScore(clinicalRow, predictionRow, commonColumns),
+    }))
+    .filter(({ score }) => score.matched > 0 && score.mismatched === 0)
+    .sort((left, right) => right.score.matched - left.score.matched);
+
+  return candidates[0]?.clinicalRow ?? {};
+}
+
+function displayRegistrationNumber(
+  predictionRow: DataRow,
+  commonColumns: string[],
+  index: number
+) {
+  for (const column of fallbackRegistrationColumns) {
+    if (predictionRow[column]) {
+      return predictionRow[column];
+    }
+  }
+
+  for (const column of commonColumns) {
+    if (predictionRow[column]) {
+      return predictionRow[column];
+    }
+  }
+
+  return `sample-${index + 1}`;
+}
+
 async function saveProjectFiles({
   projectId,
   files,
@@ -307,7 +412,7 @@ async function saveProjectFiles({
   kind: ProjectFileKind;
 }) {
   const savedFiles: SavedProjectFile[] = [];
-  const projectUploadDir = path.join(uploadRoot, projectId);
+  const projectUploadDir = getProjectUploadDir(projectId);
 
   await mkdir(projectUploadDir, { recursive: true });
 
@@ -321,7 +426,7 @@ async function saveProjectFiles({
       .split("/")
       .map((segment) => sanitizeFileName(segment))
       .join("/");
-    const filePath = path.join(projectUploadDir, safeRelativePath);
+    const filePath = getProjectUploadFilePath(projectId, safeRelativePath);
     const arrayBuffer = await file.arrayBuffer();
 
     await mkdir(path.dirname(filePath), { recursive: true });
@@ -330,7 +435,7 @@ async function saveProjectFiles({
     savedFiles.push({
       fileName: file.name,
       relativePath,
-      storagePath: `/uploads/projects/${projectId}/${safeRelativePath}`,
+      storagePath: getProjectFileUrl(projectId, safeRelativePath),
       mimeType: file.type || "application/octet-stream",
       size: file.size,
       kind,
@@ -340,8 +445,11 @@ async function saveProjectFiles({
   return savedFiles;
 }
 
-async function rebuildProjectCases(projectId: string) {
-  const files = await prisma.projectFile.findMany({
+async function rebuildProjectCases(
+  projectId: string,
+  db: ProjectDataClient = prisma
+) {
+  const files = await db.projectFile.findMany({
     where: { projectId },
     orderBy: { createdAt: "asc" },
   });
@@ -350,7 +458,7 @@ async function rebuildProjectCases(projectId: string) {
     (file) => file.kind === "MODEL_PREDICTION"
   );
 
-  await prisma.projectCase.deleteMany({
+  await db.projectCase.deleteMany({
     where: { projectId },
   });
 
@@ -362,18 +470,18 @@ async function rebuildProjectCases(projectId: string) {
     parseSavedDataFiles(clinicalFiles),
     parseSavedDataFiles(predictionFiles),
   ]);
-  const clinicalByRegistrationNumber = new Map(
-    clinicalRows
-      .filter((row) => row[registrationColumn])
-      .map((row) => [row[registrationColumn], row])
-  );
+  const commonColumns = sharedColumns(clinicalRows, predictionRows);
   const imageLookup = buildImageLookup(
     files.filter((file) => file.kind === "IMAGE")
   );
   const cases = predictionRows
-    .filter((row) => row[registrationColumn])
-    .map((predictionRow) => {
-      const registrationNumber = predictionRow[registrationColumn];
+    .filter((row) => Object.values(row).some((value) => value))
+    .map((predictionRow, index) => {
+      const registrationNumber = displayRegistrationNumber(
+        predictionRow,
+        commonColumns,
+        index
+      );
       const imageId = predictionRow[imageIdColumn] || null;
       const imageFolder = predictionRow[imageFolderColumn] || null;
       const imageFile =
@@ -386,15 +494,18 @@ async function rebuildProjectCases(projectId: string) {
         registrationNumber,
         imageId,
         imageFolder,
-        clinicalData:
-          clinicalByRegistrationNumber.get(registrationNumber) ?? {},
+        clinicalData: matchingClinicalRow(
+          clinicalRows,
+          predictionRow,
+          commonColumns
+        ),
         predictionData: predictionRow,
         imageFileId: imageFile?.id ?? null,
       };
     });
 
   if (cases.length > 0) {
-    await prisma.projectCase.createMany({
+    await db.projectCase.createMany({
       data: cases,
     });
   }
@@ -486,6 +597,7 @@ export async function updateProjectDataFromFormData({
     where: {
       id: projectId,
       ownerId,
+      deletedAt: null,
     },
   });
 
@@ -513,33 +625,45 @@ export async function updateProjectDataFromFormData({
     throw new Error("추가하거나 변경할 파일을 선택해주세요.");
   }
 
-  if (mode === "replace") {
-    await prisma.projectFile.deleteMany({
-      where: {
+  const savedGroups: Array<{
+    kind: ProjectFileKind;
+    files: SavedProjectFile[];
+  }> = [];
+
+  for (const group of activeGroups) {
+    savedGroups.push({
+      kind: group.kind,
+      files: await saveProjectFiles({
         projectId,
-        kind: { in: activeGroups.map((group) => group.kind) },
-      },
+        files: group.files,
+        kind: group.kind,
+      }),
     });
   }
 
-  for (const group of activeGroups) {
-    const savedFiles = await saveProjectFiles({
-      projectId,
-      files: group.files,
-      kind: group.kind,
-    });
-
-    for (const file of savedFiles) {
-      await prisma.projectFile.create({
-        data: {
-          ...file,
+  await prisma.$transaction(async (tx) => {
+    if (mode === "replace") {
+      await tx.projectFile.deleteMany({
+        where: {
           projectId,
+          kind: { in: activeGroups.map((group) => group.kind) },
         },
       });
     }
-  }
 
-  await rebuildProjectCases(projectId);
+    for (const group of savedGroups) {
+      for (const file of group.files) {
+        await tx.projectFile.create({
+          data: {
+            ...file,
+            projectId,
+          },
+        });
+      }
+    }
+
+    await rebuildProjectCases(projectId, tx);
+  });
 
   return project;
 }

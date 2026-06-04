@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { ProjectCaseViewer } from "@/components/project-case-viewer";
 import { ProjectDataUploadButton } from "@/components/project-data-upload";
 import { requireUser } from "@/lib/auth";
+import { formatSeoulDateTime } from "@/lib/format-date";
 import { prisma } from "@/lib/prisma";
 import {
   buildProjectImageLookup,
@@ -20,13 +21,6 @@ type ProjectPageProps = {
     projectId: string;
   }>;
 };
-
-function formatDate(date: Date) {
-  return new Intl.DateTimeFormat("ko-KR", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
 
 function toStringRecord(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -54,6 +48,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
   const project = await prisma.project.findFirst({
     where: {
       id: projectId,
+      deletedAt: null,
       OR: [
         { ownerId: user.id },
         ...(user.role === "ADMIN" ? [{ id: projectId }] : []),
@@ -158,7 +153,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
               </h1>
               <p className="mt-2 text-sm text-white/58">
                 {project.owner.name} · {project.owner.organization} ·{" "}
-                {formatDate(project.createdAt)}
+                {formatSeoulDateTime(project.createdAt)}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -180,6 +175,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
 
         {caseRows.length > 0 ? (
           <ProjectCaseViewer
+            key={caseRows.map((caseRow) => caseRow.id).join(":")}
             projectId={project.id}
             currentUserId={user.id}
             currentUserName={user.name}
@@ -189,8 +185,8 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
           <section className="mt-8 rounded-2xl border border-white/12 bg-white/[0.06] p-6">
             <h2 className="text-lg font-semibold">결합 데이터</h2>
             <p className="mt-4 rounded-xl border border-dashed border-white/14 bg-[#171717]/35 p-8 text-center text-sm text-white/45">
-              결합된 데이터가 없습니다. 모델예측 데이터에는 등록번호, image_folder,
-              image_id 열이 필요합니다.
+              결합된 데이터가 없습니다. 임상데이터와 모델예측 데이터에 공통된
+              컬럼이 있으면 샘플별 임상데이터를 연결할 수 있습니다.
             </p>
           </section>
         )}

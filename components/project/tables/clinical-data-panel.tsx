@@ -46,8 +46,8 @@ export function ClinicalDataPanel({ caseRow }: { caseRow: CaseRow | null }) {
         </div>
       ) : (
         <div className="mt-5 rounded-xl border border-dashed border-white/14 bg-[#171717]/35 p-8 text-center text-sm text-white/45">
-          업로드된 임상데이터에서 등록번호 {caseRow?.registrationNumber ?? "-"}를
-          찾지 못했습니다.
+          업로드된 임상데이터에서 이 샘플과 공통 컬럼 값이 일치하는 행을 찾지
+          못했습니다.
         </div>
       )}
     </section>

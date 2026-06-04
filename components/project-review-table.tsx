@@ -207,7 +207,7 @@ export function ProjectReviewTable({
         <table className="w-full min-w-[980px] text-left text-sm">
           <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#202020] text-white/50">
             <tr>
-              <th className="px-4 py-3 font-medium">등록번호</th>
+              <th className="px-4 py-3 font-medium">샘플</th>
               <th className="px-4 py-3 font-medium">image_id</th>
               {visibleColumns.map((column) => (
                 <Fragment key={`head-${column}`}>

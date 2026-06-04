@@ -3,10 +3,10 @@
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence } from "framer-motion";
-import { FolderPlus } from "lucide-react";
+import { FolderPlus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { AlertBanner, ModalFrame } from "@/components/workspace/common";
+import { AlertBanner, ModalFrame, Notice } from "@/components/workspace/common";
 import { CreateProjectModal } from "@/components/workspace/create-project-modal";
 import { ProjectCard } from "@/components/workspace/project-card";
 import { ShareProjectModal } from "@/components/workspace/share-project-modal";
@@ -26,11 +26,13 @@ export function ProjectWorkspacePanel({
   shareUsers,
   currentUserRole,
   requestProjectShare,
+  deleteProject,
 }: {
   projects: Project[];
   shareUsers: ShareUser[];
   currentUserRole: string;
   requestProjectShare: WorkspaceFormAction;
+  deleteProject: WorkspaceFormAction;
 }) {
   const router = useRouter();
   const [createOpen, setCreateOpen] = useState(false);
@@ -38,6 +40,8 @@ export function ProjectWorkspacePanel({
   const [shareStatusProject, setShareStatusProject] = useState<Project | null>(
     null
   );
+  const [deleteTargetProject, setDeleteTargetProject] =
+    useState<Project | null>(null);
   const [shareUserQuery, setShareUserQuery] = useState("");
   const [shareBanner, setShareBanner] =
     useState<WorkspaceActionState>(initialState);
@@ -47,6 +51,12 @@ export function ProjectWorkspacePanel({
     requestProjectShare,
     initialState
   );
+  const [deleteState, deleteAction] = useActionState(
+    deleteProject,
+    initialState
+  );
+  const [deleteBanner, setDeleteBanner] =
+    useState<WorkspaceActionState>(initialState);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] =
     useState<UploadStatus>(initialUploadStatus);
@@ -97,6 +107,22 @@ export function ProjectWorkspacePanel({
 
     return () => window.clearTimeout(timer);
   }, [shareState]);
+
+  useEffect(() => {
+    if (!deleteState.message) {
+      return;
+    }
+
+    if (deleteState.type === "success") {
+      const timer = window.setTimeout(() => {
+        setDeleteTargetProject(null);
+        setDeleteBanner(deleteState);
+        router.refresh();
+      }, 0);
+
+      return () => window.clearTimeout(timer);
+    }
+  }, [deleteState, router]);
 
   function handleCreateSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -229,6 +255,15 @@ export function ProjectWorkspacePanel({
             />
           </div>
         )}
+        {deleteBanner.message && (
+          <div className="fixed right-4 top-4 z-50 w-[min(calc(100vw-2rem),380px)]">
+            <AlertBanner
+              state={deleteBanner}
+              title="프로젝트 삭제 완료"
+              onDismiss={() => setDeleteBanner(initialState)}
+            />
+          </div>
+        )}
       </AnimatePresence>
       <section className="mt-8 rounded-2xl border border-white/12 bg-white/[0.06] p-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -265,6 +300,7 @@ export function ProjectWorkspacePanel({
                   setShareUserQuery("");
                 }}
                 onShareStatus={setShareStatusProject}
+                onDelete={setDeleteTargetProject}
               />
             ))
           )}
@@ -319,6 +355,48 @@ export function ProjectWorkspacePanel({
                 showMessage={false}
               />
             </div>
+          </ModalFrame>
+        )}
+
+        {deleteTargetProject && (
+          <ModalFrame
+            title="프로젝트 삭제"
+            description={`${deleteTargetProject.name} 프로젝트를 삭제합니다. 지우면 복구가 어렵습니다. 그래도 지우시겠습니까?`}
+            onClose={() => setDeleteTargetProject(null)}
+          >
+            <form action={deleteAction} className="mt-6">
+              <input
+                type="hidden"
+                name="projectId"
+                value={deleteTargetProject.id}
+              />
+              <div className="rounded-xl border border-rose-300/20 bg-rose-300/10 p-4 text-sm leading-6 text-rose-50">
+                이 프로젝트의 업로드 파일, 케이스, 공유 요청, 주석 및 예측값 수정
+                기록이 함께 삭제됩니다. 지우면 복구가 어렵습니다. 그래도
+                지우시겠습니까?
+              </div>
+              {deleteState.type === "error" && (
+                <div className="mt-4">
+                  <Notice state={deleteState} />
+                </div>
+              )}
+              <div className="mt-6 flex flex-wrap justify-end gap-2">
+                <Button
+                  type="button"
+                  onClick={() => setDeleteTargetProject(null)}
+                  className="border border-white/14 bg-white/[0.07] text-white/72 hover:bg-white/12 hover:text-white"
+                >
+                  취소
+                </Button>
+                <Button
+                  type="submit"
+                  className="gap-2 border border-rose-300/30 bg-rose-300/16 text-rose-50 hover:bg-rose-300/26"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  삭제하기
+                </Button>
+              </div>
+            </form>
           </ModalFrame>
         )}
       </section>

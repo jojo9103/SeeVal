@@ -1,8 +1,7 @@
-"use client";
-
-import { useMemo, useState } from "react";
+import Link from "next/link";
 import { ArrowDown, ArrowUp, ChevronsUpDown, Search, X } from "lucide-react";
 
+import { formatSeoulDateTime } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
 
 type AdminUser = {
@@ -18,6 +17,8 @@ type AdminUser = {
 type SortKey = "name" | "email" | "organization" | "role" | "status" | "createdAt";
 type SortDirection = "asc" | "desc";
 type UserAction = (formData: FormData) => void | Promise<void>;
+type RawSortKey = SortKey | string;
+type RawSortDirection = SortDirection | string;
 
 const columns: Array<{ key: SortKey; label: string }> = [
   { key: "name", label: "Name" },
@@ -27,13 +28,6 @@ const columns: Array<{ key: SortKey; label: string }> = [
   { key: "status", label: "Status" },
   { key: "createdAt", label: "Requested" },
 ];
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("ko-KR", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
 
 function statusClassName(status: string) {
   if (status === "PENDING") {
@@ -59,6 +53,46 @@ function getSortValue(user: AdminUser, sortKey: SortKey) {
   return user[sortKey].toLowerCase();
 }
 
+function normalizeSortKey(value: RawSortKey): SortKey {
+  if (
+    value === "name" ||
+    value === "email" ||
+    value === "organization" ||
+    value === "role" ||
+    value === "status" ||
+    value === "createdAt"
+  ) {
+    return value;
+  }
+
+  return "createdAt";
+}
+
+function normalizeSortDirection(value: RawSortDirection): SortDirection {
+  return value === "asc" ? "asc" : "desc";
+}
+
+function tableHref({
+  query,
+  sortKey,
+  sortDirection,
+}: {
+  query: string;
+  sortKey: SortKey;
+  sortDirection: SortDirection;
+}) {
+  const params = new URLSearchParams();
+
+  if (query.trim()) {
+    params.set("q", query.trim());
+  }
+
+  params.set("sort", sortKey);
+  params.set("dir", sortDirection);
+
+  return `/admin/accounts?${params.toString()}`;
+}
+
 function SortIcon({
   active,
   direction,
@@ -79,65 +113,56 @@ function SortIcon({
 
 export function AdminUsersTable({
   users,
+  query,
+  sortKey,
+  sortDirection,
   approveUser,
   rejectUser,
   disableUser,
   activateUser,
 }: {
   users: AdminUser[];
+  query: string;
+  sortKey: RawSortKey;
+  sortDirection: RawSortDirection;
   approveUser: UserAction;
   rejectUser: UserAction;
   disableUser: UserAction;
   activateUser: UserAction;
 }) {
-  const [query, setQuery] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("createdAt");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const activeSortKey = normalizeSortKey(sortKey);
+  const activeSortDirection = normalizeSortDirection(sortDirection);
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredUsers = normalizedQuery
+    ? users.filter((user) =>
+        [
+          user.name,
+          user.email,
+          user.organization,
+          user.role,
+          user.status,
+          formatSeoulDateTime(user.createdAt),
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedQuery)
+      )
+    : users;
+  const visibleUsers = [...filteredUsers].sort((leftUser, rightUser) => {
+    const leftValue = getSortValue(leftUser, activeSortKey);
+    const rightValue = getSortValue(rightUser, activeSortKey);
+    const sortModifier = activeSortDirection === "asc" ? 1 : -1;
 
-  const visibleUsers = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    const filteredUsers = normalizedQuery
-      ? users.filter((user) =>
-          [
-            user.name,
-            user.email,
-            user.organization,
-            user.role,
-            user.status,
-            formatDate(user.createdAt),
-          ]
-            .join(" ")
-            .toLowerCase()
-            .includes(normalizedQuery)
-        )
-      : users;
-
-    return [...filteredUsers].sort((leftUser, rightUser) => {
-      const leftValue = getSortValue(leftUser, sortKey);
-      const rightValue = getSortValue(rightUser, sortKey);
-      const sortModifier = sortDirection === "asc" ? 1 : -1;
-
-      if (leftValue < rightValue) {
-        return -1 * sortModifier;
-      }
-
-      if (leftValue > rightValue) {
-        return 1 * sortModifier;
-      }
-
-      return leftUser.email.localeCompare(rightUser.email) * sortModifier;
-    });
-  }, [query, sortDirection, sortKey, users]);
-
-  function changeSort(nextSortKey: SortKey) {
-    if (sortKey === nextSortKey) {
-      setSortDirection((current) => (current === "asc" ? "desc" : "asc"));
-      return;
+    if (leftValue < rightValue) {
+      return -1 * sortModifier;
     }
 
-    setSortKey(nextSortKey);
-    setSortDirection(nextSortKey === "createdAt" ? "desc" : "asc");
-  }
+    if (leftValue > rightValue) {
+      return 1 * sortModifier;
+    }
+
+    return leftUser.email.localeCompare(rightUser.email) * sortModifier;
+  });
 
   return (
     <>
@@ -149,26 +174,31 @@ export function AdminUsersTable({
           </p>
         </div>
 
-        <label className="relative block w-full md:max-w-sm">
+        <form action="/admin/accounts" className="relative block w-full md:max-w-sm">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
           <input
+            name="q"
             type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            defaultValue={query}
             placeholder="Search users"
             className="h-10 w-full rounded-lg border border-white/12 bg-white/[0.07] px-10 text-sm text-white outline-none transition placeholder:text-white/35 focus:border-teal-200/55 focus:bg-white/[0.1] focus:ring-4 focus:ring-teal-300/10"
           />
           {query && (
-            <button
-              type="button"
-              onClick={() => setQuery("")}
+            <Link
+              href={tableHref({
+                query: "",
+                sortKey: activeSortKey,
+                sortDirection: activeSortDirection,
+              })}
               aria-label="Clear search"
               className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-white/45 transition hover:bg-white/10 hover:text-white"
             >
               <X className="h-3.5 w-3.5" />
-            </button>
+            </Link>
           )}
-        </label>
+          <input type="hidden" name="sort" value={activeSortKey} />
+          <input type="hidden" name="dir" value={activeSortDirection} />
+        </form>
       </div>
 
       <div className="overflow-x-auto">
@@ -177,20 +207,27 @@ export function AdminUsersTable({
             <tr>
               {columns.map((column) => (
                 <th key={column.key} className="px-5 py-3 font-medium">
-                  <button
-                    type="button"
-                    onClick={() => changeSort(column.key)}
+                  <Link
+                    href={tableHref({
+                      query,
+                      sortKey: column.key,
+                      sortDirection:
+                        activeSortKey === column.key &&
+                        activeSortDirection === "asc"
+                          ? "desc"
+                          : "asc",
+                    })}
                     className={cn(
                       "inline-flex items-center gap-1.5 rounded-md py-1 text-left transition hover:text-white",
-                      sortKey === column.key && "text-teal-100"
+                      activeSortKey === column.key && "text-teal-100"
                     )}
                   >
                     {column.label}
                     <SortIcon
-                      active={sortKey === column.key}
-                      direction={sortDirection}
+                      active={activeSortKey === column.key}
+                      direction={activeSortDirection}
                     />
-                  </button>
+                  </Link>
                 </th>
               ))}
               <th className="px-5 py-3 font-medium">Actions</th>
@@ -213,7 +250,7 @@ export function AdminUsersTable({
                     {user.status}
                   </span>
                 </td>
-                <td className="px-5 py-4">{formatDate(user.createdAt)}</td>
+                <td className="px-5 py-4">{formatSeoulDateTime(user.createdAt)}</td>
                 <td className="px-5 py-4">
                   <div className="flex gap-2">
                     {user.status === "PENDING" && (

@@ -41,5 +41,7 @@ yarn-error.log*
 next-env.d.ts
 
 /lib/generated/prisma
+/.seeval-uploads
+/backups
 /public/uploads
 /storage

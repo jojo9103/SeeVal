@@ -105,6 +105,7 @@ model Project {
   editablePredictionColumns Json @default("[]")
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
+  deletedAt   DateTime?
 
   ownerId     String
   owner       User          @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
@@ -113,6 +114,7 @@ model Project {
   cases       ProjectCase[]
 
   @@index([ownerId, createdAt])
+  @@index([deletedAt])
 }
 
 model ProjectFile {
@@ -206,10 +208,14 @@ model AdminNotice {
   title     String
   message   String
   createdAt DateTime @default(now())
+  recalledAt DateTime?
+  deletedAt DateTime?
 
   authorId  String
   author    User     @relation("AdminNoticeAuthor", fields: [authorId], references: [id], onDelete: Cascade)
 
   @@index([createdAt])
   @@index([authorId])
+  @@index([recalledAt])
+  @@index([deletedAt])
 }

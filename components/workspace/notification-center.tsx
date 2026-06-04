@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, Check, X } from "lucide-react";
+import { Bell, Check, Megaphone, X } from "lucide-react";
 
 import { formatDate } from "@/components/workspace/format";
 import type {
@@ -116,15 +116,22 @@ export function NotificationCenter({
                 {notices.map((notice) => (
                   <article
                     key={notice.id}
-                    className="rounded-lg border border-white/10 bg-white/[0.04] p-3"
+                    className="rounded-lg border border-amber-300/25 bg-amber-300/10 p-3"
                   >
-                    <p className="font-medium text-white">{notice.title}</p>
-                    <p className="mt-1 text-xs text-white/45">
-                      {notice.authorName} · {formatDate(notice.createdAt)}
-                    </p>
-                    <p className="mt-2 text-sm leading-5 text-white/60">
-                      {notice.message}
-                    </p>
+                    <div className="flex items-start gap-2.5">
+                      <Megaphone className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-100" />
+                      <div>
+                        <p className="font-medium text-amber-50">
+                          {notice.title}
+                        </p>
+                        <p className="mt-1 text-xs text-amber-50/55">
+                          {notice.authorName} · {formatDate(notice.createdAt)}
+                        </p>
+                        <p className="mt-2 text-sm leading-5 text-amber-50/76">
+                          {notice.message}
+                        </p>
+                      </div>
+                    </div>
                   </article>
                 ))}
               </div>

@@ -109,6 +109,7 @@ async function requestProjectShare(
     where: {
       id: projectId,
       ownerId: currentUser.id,
+      deletedAt: null,
     },
   });
 
@@ -235,6 +236,54 @@ async function rejectShare(formData: FormData) {
   revalidatePath("/workspace");
 }
 
+async function deleteProject(
+  _state: WorkspaceActionState,
+  formData: FormData
+): Promise<WorkspaceActionState> {
+  "use server";
+
+  const currentUser = await requireUser();
+  const projectId = String(formData.get("projectId") ?? "");
+
+  if (!projectId) {
+    return {
+      type: "error",
+      message: "삭제할 프로젝트를 찾을 수 없습니다.",
+    };
+  }
+
+  const project = await prisma.project.findFirst({
+    where: {
+      id: projectId,
+      deletedAt: null,
+      ...(currentUser.role === "ADMIN" ? {} : { ownerId: currentUser.id }),
+    },
+    select: {
+      id: true,
+      name: true,
+    },
+  });
+
+  if (!project) {
+    return {
+      type: "error",
+      message: "삭제할 수 있는 프로젝트가 아닙니다.",
+    };
+  }
+
+  await prisma.project.update({
+    where: { id: project.id },
+    data: { deletedAt: new Date() },
+  });
+
+  revalidatePath("/workspace");
+
+  return {
+    type: "success",
+    message: `${project.name} 프로젝트를 삭제했습니다. 데이터는 복구를 위해 보관됩니다.`,
+  };
+}
+
 export default async function WorkspacePage() {
   const user = await requireUser();
   const [
@@ -247,7 +296,10 @@ export default async function WorkspacePage() {
   ] =
     await Promise.all([
       prisma.project.findMany({
-        where: user.role === "ADMIN" ? {} : { ownerId: user.id },
+        where:
+          user.role === "ADMIN"
+            ? { deletedAt: null }
+            : { ownerId: user.id, deletedAt: null },
         include: {
           files: true,
           owner: { select: { name: true } },
@@ -259,6 +311,7 @@ export default async function WorkspacePage() {
         ? Promise.resolve([])
         : prisma.project.findMany({
             where: {
+              deletedAt: null,
               shares: {
                 some: {
                   sharedWithId: user.id,
@@ -277,6 +330,9 @@ export default async function WorkspacePage() {
         where: {
           sharedWithId: user.id,
           status: "PENDING",
+          project: {
+            deletedAt: null,
+          },
         },
         include: {
           project: {
@@ -293,6 +349,7 @@ export default async function WorkspacePage() {
         where: {
           project: {
             ownerId: user.id,
+            deletedAt: null,
           },
         },
         include: {
@@ -313,6 +370,10 @@ export default async function WorkspacePage() {
         orderBy: { createdAt: "desc" },
       }),
       prisma.adminNotice.findMany({
+        where: {
+          deletedAt: null,
+          recalledAt: null,
+        },
         include: {
           author: { select: { name: true } },
         },
@@ -373,6 +434,7 @@ export default async function WorkspacePage() {
     ownerName: project.owner.name,
     ownedByMe: project.ownerId === user.id,
     canReview: project.ownerId === user.id || user.role === "ADMIN",
+    canDelete: project.ownerId === user.id || user.role === "ADMIN",
     createdAt: project.createdAt.toISOString(),
     pendingShareCount: project.shares.filter((share) => share.status === "PENDING")
       .length,
@@ -457,6 +519,7 @@ export default async function WorkspacePage() {
           shareUsers={shareUsers}
           currentUserRole={user.role}
           requestProjectShare={requestProjectShare}
+          deleteProject={deleteProject}
         />
 
       </div>

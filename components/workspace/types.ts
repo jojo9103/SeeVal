@@ -47,6 +47,7 @@ export type Project = {
   ownerName: string;
   ownedByMe: boolean;
   canReview: boolean;
+  canDelete: boolean;
   createdAt: string;
   files: ProjectFile[];
   pendingShareCount: number;

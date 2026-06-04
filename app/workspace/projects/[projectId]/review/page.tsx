@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 
 import { ProjectReviewTable } from "@/components/project-review-table";
 import { requireUser } from "@/lib/auth";
+import { formatSeoulDateTime } from "@/lib/format-date";
 import { normalizeAnnotations } from "@/lib/project-annotations";
 import {
   buildProjectImageLookup,
@@ -21,13 +22,6 @@ type ProjectReviewPageProps = {
     projectId: string;
   }>;
 };
-
-function formatDate(date: Date) {
-  return new Intl.DateTimeFormat("ko-KR", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
 
 function toStringRecord(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -62,6 +56,7 @@ async function updateEditablePredictionColumns(formData: FormData) {
   const project = await prisma.project.findFirst({
     where: {
       id: projectId,
+      deletedAt: null,
       ...(user.role === "ADMIN" ? {} : { ownerId: user.id }),
     },
     select: { id: true },
@@ -88,6 +83,7 @@ export default async function ProjectReviewPage({
   const project = await prisma.project.findFirst({
     where: {
       id: projectId,
+      deletedAt: null,
       ...(user.role === "ADMIN" ? {} : { ownerId: user.id }),
     },
     include: {
@@ -197,7 +193,7 @@ export default async function ProjectReviewPage({
               </h1>
               <p className="mt-2 text-sm text-white/58">
                 공유자 {project.owner.name} · 공유받은 사용자 {sharedUsers.length}
-                명 · {formatDate(project.createdAt)}
+                명 · {formatSeoulDateTime(project.createdAt)}
               </p>
             </div>
             <Link

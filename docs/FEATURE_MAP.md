@@ -8,12 +8,14 @@
   - 로그인한 사용자의 workspace 첫 화면입니다.
   - 프로젝트 생성, 프로젝트 목록, Notification, 평가 취합 진입 버튼을 다룹니다.
   - ADMIN은 전체 프로젝트를 볼 수 있고, 프로젝트 소유자와 ADMIN은 평가 취합으로 들어갈 수 있습니다.
-  - 공유 받은 요청은 Notification에서 수락/거절하며, ADMIN 공지사항도 같은 Notification에서 확인합니다.
+  - 공유 받은 요청은 Notification에서 수락/거절하며, ADMIN 공지사항도 같은 Notification에서 배너 형식으로 확인합니다.
+  - 프로젝트 삭제는 soft delete입니다. `Project.deletedAt`만 기록하고 DB row와 업로드 파일은 복구를 위해 보관합니다.
 
 - `app/workspace/projects/[projectId]/page.tsx`
   - 단일 프로젝트 평가 화면입니다.
   - 프로젝트 접근 권한을 확인하고, 케이스/이미지/임상데이터/모델예측/유저별 편집값을 불러옵니다.
   - `ProjectCaseViewer`에 화면용 데이터를 넘깁니다.
+  - 데이터 추가/변경 후 `ProjectCaseViewer` key가 바뀌어 새 케이스 데이터가 즉시 반영됩니다.
 
 - `app/workspace/projects/[projectId]/review/page.tsx`
   - 평가 취합 화면입니다.
@@ -43,9 +45,10 @@
   - polygon은 클릭 방식과 드래그 방식을 모두 지원합니다.
   - rectangle은 생성, 이동, 크기 조절, 삭제를 지원합니다.
   - annotation은 이미지 원본 pixel 좌표 기준으로 저장됩니다.
+  - 툴바 우측 이미지 이동 버튼으로 이미지가 있는 케이스를 이전/다음 순서로 넘길 수 있습니다.
 
 - `components/project/image-viewer/viewer-toolbar.tsx`
-  - 선택/사각형/polygon 도구, 확대/축소, polygon 완료, 삭제, JSON 다운로드 버튼을 담당합니다.
+  - 선택/사각형/polygon 도구, 확대/축소, polygon 완료, 삭제, JSON 다운로드, 이미지 이전/다음 버튼을 담당합니다.
 
 - `components/project/image-viewer/minimap.tsx`
   - 우측 상단 minimap과 minimap 클릭 이동을 담당합니다.
@@ -77,6 +80,7 @@
   - `image_id` 클릭 시 Image Viewer의 선택 case를 바꿉니다.
   - 프로젝트별 수정 허용 column에 포함된 숫자형 값만 수정 가능하며, 저장 버튼으로 사용자별 편집값을 저장합니다.
   - 정렬, 페이지네이션, 30/60/90 rows 표시 옵션을 지원합니다.
+  - 임상데이터와 모델예측 데이터는 고정 컬럼이 아니라 양쪽 데이터의 공통 컬럼 값으로 연결됩니다.
 
 - `components/project-review-table.tsx`
   - 평가 취합 페이지의 테이블입니다.
@@ -99,7 +103,17 @@
   - 프로젝트 생성/업데이트 시 업로드 파일 저장과 파싱을 담당합니다.
   - CSV/XLSX/XLS 임상데이터와 모델예측 데이터를 파싱합니다.
   - 이미지 폴더 업로드 시 비이미지 파일은 제외합니다.
-  - `image_folder`와 `image_id`를 기반으로 업로드 이미지와 prediction row를 연결합니다.
+  - 임상데이터와 모델예측 데이터는 공통 컬럼 중 값이 일치하고 충돌하지 않는 row를 기준으로 연결합니다.
+  - `image_folder`와 `image_id`를 기반으로 업로드 이미지와 prediction row를 연결합니다. `image_folder`는 이미지 폴더/파일 매칭에 쓰입니다.
+  - 데이터 교체 업로드는 DB 삭제/생성/케이스 재생성을 트랜잭션으로 묶어 중간 실패에 더 강하게 처리합니다.
+
+- `lib/project-storage.ts`
+  - 업로드 파일 저장 경로와 `/api/project-files/...` 파일 URL 생성을 담당합니다.
+  - 기본 저장소는 `.seeval-uploads/projects`이며 운영에서는 `SEEV_UPLOAD_DIR`로 코드 폴더 밖 경로를 지정할 수 있습니다.
+
+- `app/api/project-files/[projectId]/[...filePath]/route.ts`
+  - 업로드된 프로젝트 파일을 권한 확인 후 제공합니다.
+  - 삭제된 프로젝트(`deletedAt` 존재)는 파일 접근이 차단됩니다.
 
 - `components/project-data-upload.tsx`
   - 기존 프로젝트에 임상데이터/모델예측/이미지를 추가 또는 교체하는 업로드 UI입니다.
@@ -115,17 +129,25 @@
 
 - `components/workspace/`
   - `project-workspace-panel.tsx`: 프로젝트 목록, 생성/공유/공유상태 모달을 조립하는 상위 컴포넌트입니다.
-  - `project-card.tsx`: 프로젝트 카드와 `들어가기`, `평가 취합`, `공유요청상황`, `공유하기` 버튼을 담당합니다.
+  - `project-card.tsx`: 프로젝트 카드와 `들어가기`, `평가 취합`, `공유요청상황`, `공유하기`, `삭제` 버튼을 담당합니다.
   - `create-project-modal.tsx`: 프로젝트 생성과 업로드 진행률 표시 UI를 담당합니다.
   - `share-project-modal.tsx`: 공유 대상 검색 및 공유 요청/바로 공유 UI를 담당합니다.
   - `share-status-list.tsx`: 프로젝트별 공유 요청 상태와 공유 허가된 사용자 목록을 보여줍니다.
-  - `notification-center.tsx`: 받은 공유 요청 수락/거절과 ADMIN 공지사항 확인을 담당합니다.
+  - `notification-center.tsx`: 받은 공유 요청 수락/거절과 ADMIN 공지사항 배너 확인을 담당합니다.
   - `edit-profile-button.tsx`: 회원 정보 수정 모달입니다.
   - `common.tsx`, `format.ts`, `types.ts`: 공통 모달/배너/표시 포맷/타입을 담당합니다.
 
 - `app/admin/accounts/page.tsx`
-  - 관리자 계정 승인/거절, ADMIN 업로드 프로젝트 확인, ADMIN 공지사항 등록을 담당합니다.
-  - 등록된 ADMIN 공지사항은 workspace Notification에 표시됩니다.
+  - 관리자 계정 승인/거절, ADMIN 업로드 프로젝트 확인, ADMIN 공지사항 server action을 담당합니다.
+  - 등록된 ADMIN 공지사항은 workspace Notification에 배너 형식으로 표시됩니다.
+  - 공지사항 create/update/recall/republish/delete action을 정의하고 `AdminNoticeSection`에 넘깁니다.
+
+- `components/admin-notice-banner-composer.tsx`
+  - `AdminNoticeSection`: ADMIN 공지사항 영역 전체를 조립합니다.
+  - `AdminNoticeBannerComposer`: 공지 작성/수정 배너 오버레이 입력 폼입니다.
+  - 공지 목록에서 수정, 회수, 재게시, 삭제 액션을 제공합니다.
+  - 회수된 공지는 ADMIN 목록에는 `회수됨`으로 남고 Workspace Notification에서는 숨겨집니다.
+  - 삭제된 공지는 `AdminNotice.deletedAt`이 기록되어 ADMIN 목록에서도 숨겨집니다.
 
 - `prisma/schema.prisma`
   - 핵심 모델:
@@ -135,7 +157,13 @@
     - `ProjectCasePredictionEdit`
     - `AdminNotice`
   - annotation과 prediction edit는 모두 `caseId + userId` 기준으로 사용자별 저장됩니다.
+  - `Project.deletedAt`은 soft delete에 사용됩니다. 삭제된 프로젝트는 일반 목록/상세/API 접근에서 제외됩니다.
   - `AdminNotice`는 ADMIN 공지사항을 저장하고 작성자 USER와 연결됩니다.
+  - `AdminNotice.recalledAt`은 공지 회수에 사용되며, `deletedAt`은 공지 삭제에 사용됩니다.
+
+- `scripts/backup-seeval.sh`
+  - `pg_dump`로 DB를 백업하고, 업로드 저장소를 tar.gz로 백업합니다.
+  - `SEEV_BACKUP_DIR`, `SEEV_UPLOAD_DIR`, `SEEV_BACKUP_RETENTION_DAYS` 환경변수로 운영 경로와 보관 기간을 조정합니다.
 
 ## Maintenance Notes
 
@@ -149,8 +177,10 @@
 - 모델예측 테이블 관련 변경은 `components/project/tables/prediction-data-table.tsx`를 확인하세요.
 - 평가 취합 관련 변경은 `components/project-review-table.tsx`와 review route를 확인하세요.
 - 데이터 파싱/업로드 문제는 `lib/project-upload.ts`를 확인하세요.
+- 업로드 파일 경로/권한 제공 문제는 `lib/project-storage.ts`와 `app/api/project-files/[projectId]/[...filePath]/route.ts`를 확인하세요.
 - Workspace 공유/Notification 관련 변경은 `components/workspace-actions.tsx`, `app/workspace/page.tsx`, `app/admin/accounts/page.tsx`를 함께 확인하세요.
-- DB 구조 변경 시 `prisma/schema.prisma` 수정 후 `npx prisma db push`와 `npx prisma generate`가 필요합니다.
+- DB 구조 변경 시 `prisma/schema.prisma` 수정 후 migration을 만들고 `npx prisma migrate deploy`, `npm run db:generate`를 실행하세요.
+- 운영에서는 `npm run backup`을 cron에 등록해 DB와 업로드 파일을 함께 백업하세요.
 
 ## Refactor And Context Notes
 
@@ -163,7 +193,8 @@
 - 생성형 AI에게 이어서 작업을 맡길 때는 전체 파일을 모두 붙이기보다 이 문서의 관련 섹션과 해당 파일 1-2개만 먼저 보여주는 편이 효율적입니다.
 - 이 문서는 자동으로 항상 읽히지는 않습니다. 새 작업자나 새 AI 세션에는 `docs/FEATURE_MAP.md`를 먼저 읽고 진행하라고 명시하는 것이 가장 안전합니다.
 
-## Known Build Warning
+## Operational Notes
 
-- `lib/project-upload.ts`에서 dynamic upload path 때문에 Turbopack broad file pattern warning이 발생합니다.
-- 현재 빌드는 성공하지만, 추후 성능 정리가 필요하면 업로드 파일 접근 경로를 더 명시적으로 제한하는 리팩터링을 검토하세요.
+- `Project.deletedAt` 기반 soft delete를 사용합니다. 복구는 DB에서 해당 project의 `deletedAt`을 `NULL`로 되돌리면 됩니다.
+- 운영 업로드 저장소는 `SEEV_UPLOAD_DIR`로 코드 폴더 밖 경로를 지정하는 것을 권장합니다.
+- `npm run backup`은 DB와 업로드 파일을 함께 백업합니다.

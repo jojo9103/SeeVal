@@ -26,9 +26,11 @@ export function Notice({ state }: { state: WorkspaceActionState }) {
 
 export function AlertBanner({
   state,
+  title,
   onDismiss,
 }: {
   state: WorkspaceActionState;
+  title?: string;
   onDismiss: () => void;
 }) {
   const bannerRef = useRef<HTMLDivElement | null>(null);
@@ -94,7 +96,7 @@ export function AlertBanner({
       />
       <div className="pr-8">
         <h3 className="text-sm font-semibold">
-          {isSuccess ? "공유 요청 완료" : "요청을 처리하지 못했습니다."}
+          {title ?? (isSuccess ? "공유 요청 완료" : "요청을 처리하지 못했습니다.")}
         </h3>
         <p className="mt-1 text-sm leading-5 text-white/70">{state.message}</p>
       </div>

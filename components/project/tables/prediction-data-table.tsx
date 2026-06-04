@@ -211,8 +211,8 @@ export function PredictionDataTable({
         <div>
           <h2 className="text-lg font-semibold">모델예측 결과</h2>
           <p className="mt-2 text-sm text-white/54">
-            모델예측 데이터를 기준으로 등록번호, image_folder, image_id를
-            연결했습니다.
+            모델예측 데이터를 기준으로 임상데이터와 공통된 컬럼을 연결했습니다.
+            image_folder와 image_id가 있으면 이미지 파일도 함께 연결합니다.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -261,7 +261,7 @@ export function PredictionDataTable({
           <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#202020] text-white/50">
             <tr>
               <th className="px-4 py-3 font-medium">
-                {renderSortButton("registrationNumber", "등록번호")}
+                {renderSortButton("registrationNumber", "샘플")}
               </th>
               <th className="px-4 py-3 font-medium">
                 {renderSortButton("imageId", "image_id")}

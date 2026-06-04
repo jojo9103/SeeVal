@@ -27,9 +27,18 @@ import { ViewerToolbar } from "@/components/project/image-viewer/viewer-toolbar"
 export function AnnotatableImageViewer({
   projectId,
   caseRow,
+  imageNavigation,
 }: {
   projectId: string;
   caseRow: CaseRow | null;
+  imageNavigation?: {
+    current: number;
+    total: number;
+    canGoPrevious: boolean;
+    canGoNext: boolean;
+    onPrevious: () => void;
+    onNext: () => void;
+  };
 }) {
   const viewerRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -694,6 +703,7 @@ export function AnnotatableImageViewer({
         onDownload={downloadAnnotations}
         onFinishPolygon={() => finishPolygon()}
         onModeChange={setMode}
+        imageNavigation={imageNavigation}
         onZoomIn={() => setZoom((current) => Math.min(5, current + 0.25))}
         onZoomOut={() => setZoom((current) => Math.max(1, current - 0.25))}
       />

@@ -27,6 +27,16 @@ export function ProjectCaseViewer({
     workingCases.find((caseRow) => caseRow.id === selectedCaseId) ??
     workingCases[0] ??
     null;
+  const imageCases = useMemo(
+    () => workingCases.filter((caseRow) => caseRow.imageUrl),
+    [workingCases]
+  );
+  const selectedImageIndex = selectedCase
+    ? imageCases.findIndex((caseRow) => caseRow.id === selectedCase.id)
+    : -1;
+  const canMoveToPreviousImage = selectedImageIndex > 0;
+  const canMoveToNextImage =
+    selectedImageIndex >= 0 && selectedImageIndex < imageCases.length - 1;
   const predictionColumns = useMemo(
     () => uniqueColumns(workingCases.map((caseRow) => caseRow.predictionData)),
     [workingCases]
@@ -69,6 +79,22 @@ export function ProjectCaseViewer({
           key={`viewer-${selectedCase?.id ?? "empty"}`}
           projectId={projectId}
           caseRow={selectedCase}
+          imageNavigation={{
+            current: selectedImageIndex >= 0 ? selectedImageIndex + 1 : 0,
+            total: imageCases.length,
+            canGoPrevious: canMoveToPreviousImage,
+            canGoNext: canMoveToNextImage,
+            onPrevious: () => {
+              if (canMoveToPreviousImage) {
+                setSelectedCaseId(imageCases[selectedImageIndex - 1].id);
+              }
+            },
+            onNext: () => {
+              if (canMoveToNextImage) {
+                setSelectedCaseId(imageCases[selectedImageIndex + 1].id);
+              }
+            },
+          }}
         />
 
         <SelectedCaseDataPanel

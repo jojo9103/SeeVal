@@ -1,6 +1,6 @@
 "use client";
 
-import { ChartNoAxesCombined, Images, Share2, Text } from "lucide-react";
+import { ChartNoAxesCombined, Images, Share2, Text, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/components/workspace/format";
@@ -10,10 +10,12 @@ export function ProjectCard({
   project,
   onShare,
   onShareStatus,
+  onDelete,
 }: {
   project: Project;
   onShare: (project: Project) => void;
   onShareStatus: (project: Project) => void;
+  onDelete: (project: Project) => void;
 }) {
   const clinicalFileCount = project.files.filter(
     (file) => file.kind === "CLINICAL_TEXT"
@@ -93,6 +95,16 @@ export function ProjectCard({
             >
               <Share2 className="h-4 w-4" />
               공유하기
+            </Button>
+          )}
+          {project.canDelete && (
+            <Button
+              type="button"
+              onClick={() => onDelete(project)}
+              className="gap-2 border border-rose-300/25 bg-rose-300/10 text-rose-50 hover:bg-rose-300/20"
+            >
+              <Trash2 className="h-4 w-4" />
+              삭제
             </Button>
           )}
         </div>
