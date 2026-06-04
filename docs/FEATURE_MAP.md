@@ -37,12 +37,27 @@
 ## Image Viewer And Annotation
 
 - `components/project/image-viewer/annotatable-image-viewer.tsx`
-  - 이미지 표시, fit-to-view, wheel zoom, pan, minimap, annotation 생성/수정/삭제/저장을 담당합니다.
+  - Image Viewer의 상위 조립 컴포넌트입니다.
+  - 이미지 fit-to-view, wheel zoom, pan, polygon/rectangle drawing state, pointer event 흐름을 관리합니다.
   - 초기 fit 상태에서도 이미지가 viewer 영역보다 큰 경우 드래그로 위치를 이동할 수 있습니다.
   - polygon은 클릭 방식과 드래그 방식을 모두 지원합니다.
   - rectangle은 생성, 이동, 크기 조절, 삭제를 지원합니다.
-  - annotation 목록은 Image Viewer 하단에 표시하며, 각 annotation 이름을 수정할 수 있습니다.
   - annotation은 이미지 원본 pixel 좌표 기준으로 저장됩니다.
+
+- `components/project/image-viewer/viewer-toolbar.tsx`
+  - 선택/사각형/polygon 도구, 확대/축소, polygon 완료, 삭제, JSON 다운로드 버튼을 담당합니다.
+
+- `components/project/image-viewer/minimap.tsx`
+  - 우측 상단 minimap과 minimap 클릭 이동을 담당합니다.
+
+- `components/project/image-viewer/annotation-shape.tsx`
+  - SVG 위의 rectangle/polygon 렌더링, 선택, resize handle, polygon point handle을 담당합니다.
+
+- `components/project/image-viewer/annotation-list.tsx`
+  - Image Viewer 하단 annotation 목록과 annotation 이름 수정을 담당합니다.
+
+- `components/project/image-viewer/use-image-annotations.ts`
+  - 사용자별 annotation 불러오기와 debounce 저장을 담당합니다.
 
 - `components/project/image-viewer/geometry.ts`
   - annotation 좌표 계산 유틸입니다.
@@ -60,15 +75,19 @@
 - `components/project/tables/prediction-data-table.tsx`
   - 모델예측 결과 테이블입니다.
   - `image_id` 클릭 시 Image Viewer의 선택 case를 바꿉니다.
-  - 숫자형 값만 수정 가능하며, 저장 버튼으로 사용자별 편집값을 저장합니다.
+  - 프로젝트별 수정 허용 column에 포함된 숫자형 값만 수정 가능하며, 저장 버튼으로 사용자별 편집값을 저장합니다.
   - 정렬, 페이지네이션, 30/60/90 rows 표시 옵션을 지원합니다.
-  - 통합열을 선택하면 다른 사용자들의 해당 column 편집값을 함께 보여줍니다.
 
 - `components/project-review-table.tsx`
   - 평가 취합 페이지의 테이블입니다.
   - 여러 column을 체크박스로 선택할 수 있습니다.
   - 각 column은 원본값과 `column name (공유받은사람이름)` 형태의 사용자별 편집값으로 펼쳐집니다.
-  - 저장된 annotation 위치도 사용자별로 취합하며, rectangle/polygon 좌표를 이미지 pixel 기준으로 보여줍니다.
+  - 선택한 column을 저장하면 프로젝트 평가 화면에서 해당 column만 모델예측 수정 가능 항목이 됩니다.
+
+- `components/project-annotation-review-viewer.tsx`
+  - 평가 취합 페이지에서 환자별 annotation 요약과 이미지 overlay 취합을 담당합니다.
+  - 환자별로 annotation 개수와 사용자별 개수를 짧게 보여주고, 선택한 환자의 이미지 위에 여러 사용자의 rectangle/polygon을 색상별로 함께 표시합니다.
+  - annotation 좌표는 저장된 이미지 원본 pixel 좌표를 그대로 사용해 overlay합니다.
 
 - `app/api/projects/[projectId]/cases/[caseId]/prediction/route.ts`
   - 사용자별 모델예측 수정값 저장 API입니다.
@@ -91,12 +110,18 @@
 ## Sharing And Aggregation
 
 - `components/workspace-actions.tsx`
-  - workspace의 프로젝트 생성, 공유하기, Notification, 프로젝트별 공유 요청 상황 UI를 담당합니다.
-  - 프로젝트 카드에서 `들어가기`, `평가 취합`, `공유요청상황`, `공유하기` 버튼을 보여줍니다.
-  - `NotificationCenter`는 받은 공유 요청 수락/거절과 ADMIN 공지사항 확인을 담당합니다.
-  - 공유 대상은 기본 리스트를 노출하지 않고 이름/이메일/소속 검색 결과로만 선택합니다.
-  - 공유 요청 완료 후에는 시작하기 섹션 안이 아니라 우측 상단 배너로 결과를 표시합니다.
-  - `공유요청상황` 버튼은 해당 프로젝트의 요청 상태와 공유 허가된 사용자 목록을 따로 보여줍니다.
+  - 기존 import 경로 호환을 위한 re-export 파일입니다.
+  - 실제 workspace UI는 `components/workspace/` 아래 기능별 파일에 나뉘어 있습니다.
+
+- `components/workspace/`
+  - `project-workspace-panel.tsx`: 프로젝트 목록, 생성/공유/공유상태 모달을 조립하는 상위 컴포넌트입니다.
+  - `project-card.tsx`: 프로젝트 카드와 `들어가기`, `평가 취합`, `공유요청상황`, `공유하기` 버튼을 담당합니다.
+  - `create-project-modal.tsx`: 프로젝트 생성과 업로드 진행률 표시 UI를 담당합니다.
+  - `share-project-modal.tsx`: 공유 대상 검색 및 공유 요청/바로 공유 UI를 담당합니다.
+  - `share-status-list.tsx`: 프로젝트별 공유 요청 상태와 공유 허가된 사용자 목록을 보여줍니다.
+  - `notification-center.tsx`: 받은 공유 요청 수락/거절과 ADMIN 공지사항 확인을 담당합니다.
+  - `edit-profile-button.tsx`: 회원 정보 수정 모달입니다.
+  - `common.tsx`, `format.ts`, `types.ts`: 공통 모달/배너/표시 포맷/타입을 담당합니다.
 
 - `app/admin/accounts/page.tsx`
   - 관리자 계정 승인/거절, ADMIN 업로드 프로젝트 확인, ADMIN 공지사항 등록을 담당합니다.
@@ -114,12 +139,29 @@
 
 ## Maintenance Notes
 
-- Image Viewer 관련 변경은 우선 `components/project/image-viewer/annotatable-image-viewer.tsx`와 `geometry.ts`를 확인하세요.
+- Image Viewer 관련 변경은 `components/project/image-viewer/` 아래 기능별 파일을 확인하세요.
+  - 확대/이동/드래그 흐름은 `annotatable-image-viewer.tsx`
+  - 도구 버튼은 `viewer-toolbar.tsx`
+  - minimap은 `minimap.tsx`
+  - 도형 렌더링/핸들은 `annotation-shape.tsx`
+  - annotation 목록은 `annotation-list.tsx`
+  - 저장/불러오기는 `use-image-annotations.ts`
 - 모델예측 테이블 관련 변경은 `components/project/tables/prediction-data-table.tsx`를 확인하세요.
 - 평가 취합 관련 변경은 `components/project-review-table.tsx`와 review route를 확인하세요.
 - 데이터 파싱/업로드 문제는 `lib/project-upload.ts`를 확인하세요.
 - Workspace 공유/Notification 관련 변경은 `components/workspace-actions.tsx`, `app/workspace/page.tsx`, `app/admin/accounts/page.tsx`를 함께 확인하세요.
 - DB 구조 변경 시 `prisma/schema.prisma` 수정 후 `npx prisma db push`와 `npx prisma generate`가 필요합니다.
+
+## Refactor And Context Notes
+
+- Workspace UI는 `components/workspace/` 아래로 분리되어 있습니다. Workspace 관련 변경은 해당 기능 파일을 먼저 확인하세요.
+- Image Viewer UI는 `components/project/image-viewer/` 아래로 1차 분리되어 있습니다.
+  - 추가 리팩터링이 필요하면 viewport fit/zoom/pan 로직을 hook으로 분리하는 것이 다음 우선순위입니다.
+- `app/workspace/page.tsx`와 review route는 server action과 데이터 조회가 길어질 수 있으므로, 반복되는 데이터 변환은 `lib/` helper로 빼면 유지보수가 쉬워집니다.
+- 이미지 매칭은 `lib/project-images.ts`에서 공통 처리합니다. 프로젝트 화면과 평가 취합 화면 모두 이 helper를 사용합니다.
+- annotation 정규화와 prediction edit 정규화는 `lib/project-annotations.ts`에서 처리합니다.
+- 생성형 AI에게 이어서 작업을 맡길 때는 전체 파일을 모두 붙이기보다 이 문서의 관련 섹션과 해당 파일 1-2개만 먼저 보여주는 편이 효율적입니다.
+- 이 문서는 자동으로 항상 읽히지는 않습니다. 새 작업자나 새 AI 세션에는 `docs/FEATURE_MAP.md`를 먼저 읽고 진행하라고 명시하는 것이 가장 안전합니다.
 
 ## Known Build Warning
 

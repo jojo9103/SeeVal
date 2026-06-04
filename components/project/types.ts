@@ -7,6 +7,7 @@ export type CaseRow = {
   imageFileName: string | null;
   clinicalData: Record<string, string>;
   predictionData: Record<string, string>;
+  editablePredictionColumns: string[];
   predictionEdits: Array<{
     userId: string;
     userName: string;

@@ -30,6 +30,8 @@ export function SelectedCaseDataPanel({
   const predictionEntries = Object.entries(
     caseRow ? effectivePredictionData(caseRow, currentUserId) : {}
   );
+  const editableColumnSet = new Set(caseRow?.editablePredictionColumns ?? []);
+  const hasEditableColumns = editableColumnSet.size > 0;
 
   useEffect(() => {
     if (saveStatus !== "saved") {
@@ -99,7 +101,7 @@ export function SelectedCaseDataPanel({
   }
 
   return (
-    <aside className="min-w-0 rounded-2xl border border-white/12 bg-white/[0.06] p-5">
+    <aside className="min-w-0 rounded-2xl border border-white/12 bg-white/[0.06] p-5 2xl:min-h-[786px]">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">선택된 데이터</h2>
@@ -114,10 +116,10 @@ export function SelectedCaseDataPanel({
         )}
       </div>
 
-      <div className="mt-5 space-y-5">
-        <section>
+      <div className="mt-5 grid gap-5 2xl:h-[690px] 2xl:grid-rows-[minmax(0,1fr)_minmax(0,1.35fr)]">
+        <section className="min-h-0">
           <h3 className="text-sm font-semibold text-white">임상데이터</h3>
-          <div className="mt-3 max-h-52 overflow-auto rounded-xl border border-white/10">
+          <div className="mt-3 max-h-52 overflow-auto rounded-xl border border-white/10 2xl:max-h-none 2xl:h-[calc(100%-2rem)]">
             {clinicalEntries.length > 0 ? (
               <table className="w-full text-left text-sm">
                 <tbody className="divide-y divide-white/8">
@@ -141,7 +143,7 @@ export function SelectedCaseDataPanel({
           </div>
         </section>
 
-        <section>
+        <section className="min-h-0">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-sm font-semibold text-white">모델예측 결과</h3>
             <button
@@ -154,7 +156,7 @@ export function SelectedCaseDataPanel({
               {saveLabel()}
             </button>
           </div>
-          <div className="mt-3 max-h-[360px] overflow-auto rounded-xl border border-white/10">
+          <div className="mt-3 max-h-[360px] overflow-auto rounded-xl border border-white/10 2xl:max-h-none 2xl:h-[calc(100%-2.75rem)]">
             {predictionEntries.length > 0 ? (
               <table className="w-full text-left text-sm">
                 <tbody className="divide-y divide-white/8">
@@ -164,7 +166,9 @@ export function SelectedCaseDataPanel({
                         {key}
                       </th>
                       <td className="px-3 py-2 text-white/76">
-                        {caseRow && isNumericValue(caseRow.predictionData[key]) ? (
+                        {caseRow &&
+                        editableColumnSet.has(key) &&
+                        isNumericValue(caseRow.predictionData[key]) ? (
                           <input
                             value={value}
                             inputMode="decimal"
@@ -202,7 +206,9 @@ export function SelectedCaseDataPanel({
                 ? "저장 완료"
                 : saveStatus === "error"
                   ? "저장 실패"
-                  : "숫자 값만 수정할 수 있습니다."}
+                  : hasEditableColumns
+                    ? "지정된 숫자 컬럼만 수정할 수 있습니다."
+                    : "수정 허용 컬럼이 지정되지 않아 읽기 전용입니다."}
           </p>
         </section>
       </div>

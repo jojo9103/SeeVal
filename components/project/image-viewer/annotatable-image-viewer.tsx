@@ -1,16 +1,6 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import {
-  Check,
-  Download,
-  MousePointer2,
-  Pentagon,
-  Square,
-  Trash2,
-  ZoomIn,
-  ZoomOut,
-} from "lucide-react";
 
 import type {
   CaseRow,
@@ -20,17 +10,19 @@ import type {
   ToolMode,
 } from "@/components/project/types";
 import {
-  annotationPath,
   clamp,
   createAnnotationId,
-  isAnnotationArray,
   normalizeRectangle,
   pointDistance,
   polygonCloseThreshold,
   polygonDragAddThreshold,
-  rectangleHandles,
   resizeRectangle,
 } from "@/components/project/image-viewer/geometry";
+import { AnnotationList } from "@/components/project/image-viewer/annotation-list";
+import { AnnotationShape } from "@/components/project/image-viewer/annotation-shape";
+import { ImageViewerMinimap } from "@/components/project/image-viewer/minimap";
+import { useImageAnnotations } from "@/components/project/image-viewer/use-image-annotations";
+import { ViewerToolbar } from "@/components/project/image-viewer/viewer-toolbar";
 
 export function AnnotatableImageViewer({
   projectId,
@@ -42,7 +34,6 @@ export function AnnotatableImageViewer({
   const viewerRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
-  const saveTimerRef = useRef<number | null>(null);
   const zoomRef = useRef(1);
   const didInitialFitRef = useRef(false);
   const pendingZoomAnchorRef = useRef<{
@@ -61,13 +52,15 @@ export function AnnotatableImageViewer({
   });
   const [mode, setMode] = useState<ToolMode>("select");
   const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 });
-  const [annotations, setAnnotations] = useState<ImageAnnotation[]>([]);
+  const { annotations, setAnnotations } = useImageAnnotations({
+    caseId: caseRow?.id ?? null,
+    projectId,
+  });
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(
     null
   );
   const [polygonDraft, setPolygonDraft] = useState<Point[]>([]);
   const [dragState, setDragState] = useState<DragState | null>(null);
-  const [loadedCaseId, setLoadedCaseId] = useState<string | null>(null);
   const imageKey = `${caseRow?.id ?? "empty"}-${caseRow?.imageUrl ?? "none"}`;
 
   const selectedAnnotation = annotations.find(
@@ -274,42 +267,6 @@ export function AnnotatableImageViewer({
     syncScrollState();
   }
 
-  useEffect(() => {
-    if (!caseRow?.id) {
-      return;
-    }
-
-    const caseId = caseRow.id;
-    let disposed = false;
-
-    async function loadAnnotations() {
-      const response = await fetch(
-        `/api/projects/${projectId}/cases/${caseId}/annotations`
-      );
-
-      if (!response.ok || disposed) {
-        return;
-      }
-
-      const payload = (await response.json()) as { annotations?: unknown };
-
-      if (disposed) {
-        return;
-      }
-
-      setAnnotations(
-        isAnnotationArray(payload.annotations) ? payload.annotations : []
-      );
-      setLoadedCaseId(caseId);
-    }
-
-    loadAnnotations();
-
-    return () => {
-      disposed = true;
-    };
-  }, [caseRow?.id, projectId]);
-
   useLayoutEffect(() => {
     if (
       didInitialFitRef.current ||
@@ -407,30 +364,6 @@ export function AnnotatableImageViewer({
       viewer.removeEventListener("wheel", zoomWithWheel);
     };
   });
-
-  useEffect(() => {
-    if (!caseRow?.id || loadedCaseId !== caseRow.id) {
-      return;
-    }
-
-    if (saveTimerRef.current) {
-      window.clearTimeout(saveTimerRef.current);
-    }
-
-    saveTimerRef.current = window.setTimeout(() => {
-      fetch(`/api/projects/${projectId}/cases/${caseRow.id}/annotations`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ annotations }),
-      });
-    }, 450);
-
-    return () => {
-      if (saveTimerRef.current) {
-        window.clearTimeout(saveTimerRef.current);
-      }
-    };
-  }, [annotations, caseRow?.id, loadedCaseId, projectId]);
 
   function eventPoint(event: React.PointerEvent<Element>): Point {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -740,114 +673,9 @@ export function AnnotatableImageViewer({
     URL.revokeObjectURL(url);
   }
 
-  function renderAnnotation(annotation: ImageAnnotation) {
-    const selected = annotation.id === selectedAnnotationId;
-    const stroke = selected ? "#5eead4" : "#f8fafc";
-    const sharedProps = {
-      "data-annotation-part": "shape",
-      stroke,
-      strokeWidth: selected ? 4 : 2,
-      fill: selected ? "rgba(20,184,166,0.18)" : "rgba(248,250,252,0.12)",
-      vectorEffect: "non-scaling-stroke" as const,
-      className: "cursor-pointer",
-      onPointerDown: (event: React.PointerEvent<SVGElement>) => {
-        event.stopPropagation();
-        setMode("select");
-        setSelectedAnnotationId(annotation.id);
-
-        if (annotation.type === "rectangle") {
-          setDragState({
-            type: "move-rectangle",
-            id: annotation.id,
-            start: eventPoint(event),
-            original: annotation,
-          });
-          event.currentTarget.setPointerCapture(event.pointerId);
-        }
-      },
-    };
-
-    if (annotation.type === "rectangle") {
-      return (
-        <g key={annotation.id}>
-          <rect
-            {...sharedProps}
-            x={annotation.x}
-            y={annotation.y}
-            width={annotation.width}
-            height={annotation.height}
-          />
-          {selected &&
-            rectangleHandles(annotation).map((handle) => (
-              <circle
-                key={handle.key}
-                data-annotation-part="handle"
-                cx={handle.x}
-                cy={handle.y}
-                r={7}
-                fill="#5eead4"
-                stroke="#042f2e"
-                strokeWidth={2}
-                vectorEffect="non-scaling-stroke"
-                className="cursor-nwse-resize"
-                onPointerDown={(event) => {
-                  event.stopPropagation();
-                  setDragState({
-                    type: "resize-rectangle",
-                    id: annotation.id,
-                    handle: handle.key,
-                    original: annotation,
-                  });
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                }}
-              />
-            ))}
-        </g>
-      );
-    }
-
-    return (
-      <g key={annotation.id}>
-        <polygon
-          {...sharedProps}
-          points={annotationPath(annotation)}
-          onPointerDown={(event) => {
-            event.stopPropagation();
-            setMode("select");
-            setSelectedAnnotationId(annotation.id);
-          }}
-        />
-        {selected &&
-          annotation.points.map((point, index) => (
-            <circle
-              key={`${annotation.id}-${index}`}
-              data-annotation-part="handle"
-              cx={point.x}
-              cy={point.y}
-              r={7}
-              fill="#5eead4"
-              stroke="#042f2e"
-              strokeWidth={2}
-              vectorEffect="non-scaling-stroke"
-              className="cursor-move"
-              onPointerDown={(event) => {
-                event.stopPropagation();
-                setDragState({
-                  type: "move-polygon-point",
-                  id: annotation.id,
-                  index,
-                });
-                event.currentTarget.setPointerCapture(event.pointerId);
-              }}
-            />
-          ))}
-      </g>
-    );
-  }
-
   return (
-    <section className="rounded-2xl border border-white/12 bg-white/[0.06] p-6">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+    <section className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-white/12 bg-white/[0.06] p-6">
+      <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <h2 className="text-lg font-semibold">Image viewer</h2>
           <p className="mt-2 text-sm text-white/54">
@@ -856,83 +684,23 @@ export function AnnotatableImageViewer({
         </div>
       </div>
 
-      <div className="mt-5 flex flex-wrap items-center gap-2">
-        {[
-          { mode: "select" as const, label: "선택", icon: MousePointer2 },
-          { mode: "rectangle" as const, label: "사각형", icon: Square },
-          { mode: "polygon" as const, label: "Polygon", icon: Pentagon },
-        ].map((tool) => {
-          const Icon = tool.icon;
-
-          return (
-            <button
-              key={tool.mode}
-              type="button"
-              onClick={() => setMode(tool.mode)}
-              className={`inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition ${
-                mode === tool.mode
-                  ? "border-teal-200/45 bg-teal-300/18 text-teal-50"
-                  : "border-white/12 bg-white/[0.04] text-white/62 hover:bg-white/[0.08] hover:text-white"
-              }`}
-            >
-              <Icon className="h-4 w-4" />
-              {tool.label}
-            </button>
-          );
-        })}
-        <button
-          type="button"
-          onClick={() => setZoom((current) => Math.max(1, current - 0.25))}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-white/12 bg-white/[0.04] text-white/72 transition hover:bg-white/[0.08]"
-          title="축소"
-        >
-          <ZoomOut className="h-4 w-4" />
-        </button>
-        <span className="min-w-14 text-center text-sm text-white/58">
-          {Math.round(zoom * 100)}%
-        </span>
-        <button
-          type="button"
-          onClick={() => setZoom((current) => Math.min(5, current + 0.25))}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-white/12 bg-white/[0.04] text-white/72 transition hover:bg-white/[0.08]"
-          title="확대"
-        >
-          <ZoomIn className="h-4 w-4" />
-        </button>
-        {mode === "polygon" && (
-          <button
-            type="button"
-            onClick={() => finishPolygon()}
-            disabled={polygonDraft.length < 3}
-            className="inline-flex h-9 items-center gap-2 rounded-md border border-teal-200/35 bg-teal-300/12 px-3 text-sm text-teal-50 transition hover:bg-teal-300/22 disabled:cursor-not-allowed disabled:opacity-35"
-          >
-            <Check className="h-4 w-4" />
-            완료
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={deleteSelectedAnnotation}
-          disabled={!selectedAnnotation}
-          className="inline-flex h-9 items-center gap-2 rounded-md border border-rose-300/20 bg-rose-300/10 px-3 text-sm text-rose-100 transition hover:bg-rose-300/18 disabled:cursor-not-allowed disabled:opacity-35"
-        >
-          <Trash2 className="h-4 w-4" />
-          삭제
-        </button>
-        <button
-          type="button"
-          onClick={downloadAnnotations}
-          disabled={!caseRow || annotations.length === 0}
-          className="inline-flex h-9 items-center gap-2 rounded-md border border-white/12 bg-white/[0.04] px-3 text-sm text-white/72 transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-35"
-        >
-          <Download className="h-4 w-4" />
-          JSON
-        </button>
-      </div>
+      <ViewerToolbar
+        mode={mode}
+        zoom={zoom}
+        polygonDraftCount={polygonDraft.length}
+        hasSelectedAnnotation={!!selectedAnnotation}
+        canDownload={!!caseRow && annotations.length > 0}
+        onDeleteSelected={deleteSelectedAnnotation}
+        onDownload={downloadAnnotations}
+        onFinishPolygon={() => finishPolygon()}
+        onModeChange={setMode}
+        onZoomIn={() => setZoom((current) => Math.min(5, current + 0.25))}
+        onZoomOut={() => setZoom((current) => Math.max(1, current - 0.25))}
+      />
 
       {caseRow?.imageUrl ? (
-        <div className="mt-5">
-          <div className="relative h-[620px] overflow-hidden rounded-xl border border-white/10 bg-[#0f0f0f]">
+        <div className="mt-5 min-w-0 max-w-full overflow-hidden">
+          <div className="relative h-[620px] min-w-0 max-w-full overflow-hidden rounded-xl border border-white/10 bg-[#0f0f0f]">
             <div
               ref={viewerRef}
               className="h-full overflow-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
@@ -985,7 +753,17 @@ export function AnnotatableImageViewer({
                         height={naturalSize.height}
                         fill="transparent"
                       />
-                      {annotations.map(renderAnnotation)}
+                      {annotations.map((annotation) => (
+                        <AnnotationShape
+                          key={annotation.id}
+                          annotation={annotation}
+                          eventPoint={eventPoint}
+                          selected={annotation.id === selectedAnnotationId}
+                          setDragState={setDragState}
+                          setMode={setMode}
+                          setSelectedAnnotationId={setSelectedAnnotationId}
+                        />
+                      ))}
                       {draftRectangle && (
                         <rect
                           x={draftRectangle.x}
@@ -1029,68 +807,16 @@ export function AnnotatableImageViewer({
               </div>
             </div>
             {naturalSize.width > 0 && naturalSize.height > 0 && (
-              <div className="pointer-events-auto absolute right-3 top-3 z-20 rounded-lg border border-white/15 bg-black/70 p-2">
-                <div
-                  className="relative cursor-crosshair overflow-hidden rounded bg-[#111]"
-                  style={{ width: minimapWidth, height: minimapHeight }}
-                  onClick={(event) => {
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    moveViewportToImagePoint({
-                      x:
-                        ((event.clientX - rect.left) / rect.width) *
-                        naturalSize.width,
-                      y:
-                        ((event.clientY - rect.top) / rect.height) *
-                        naturalSize.height,
-                    });
-                  }}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={caseRow.imageUrl}
-                    alt=""
-                    className="absolute inset-0 h-full w-full object-fill"
-                    draggable={false}
-                  />
-                  {annotations.map((annotation) =>
-                    annotation.type === "rectangle" ? (
-                      <div
-                        key={`mini-${annotation.id}`}
-                        className="absolute border border-teal-200 bg-teal-300/15"
-                        style={{
-                          left: annotation.x * minimapScale,
-                          top: annotation.y * minimapScale,
-                          width: annotation.width * minimapScale,
-                          height: annotation.height * minimapScale,
-                        }}
-                      />
-                    ) : (
-                      <svg
-                        key={`mini-${annotation.id}`}
-                        className="absolute inset-0 h-full w-full"
-                        viewBox={`0 0 ${naturalSize.width} ${naturalSize.height}`}
-                      >
-                        <polygon
-                          points={annotationPath(annotation)}
-                          fill="rgba(94,234,212,0.16)"
-                          stroke="#5eead4"
-                          strokeWidth={3}
-                          vectorEffect="non-scaling-stroke"
-                        />
-                      </svg>
-                    )
-                  )}
-                  <div
-                    className="absolute border border-amber-300 bg-amber-300/10"
-                    style={{
-                      left: clamp(viewportRect.x, 0, minimapWidth),
-                      top: clamp(viewportRect.y, 0, minimapHeight),
-                      width: clamp(viewportRect.width, 8, minimapWidth),
-                      height: clamp(viewportRect.height, 8, minimapHeight),
-                    }}
-                  />
-                </div>
-              </div>
+              <ImageViewerMinimap
+                annotations={annotations}
+                imageUrl={caseRow.imageUrl}
+                minimapHeight={minimapHeight}
+                minimapScale={minimapScale}
+                minimapWidth={minimapWidth}
+                naturalSize={naturalSize}
+                viewportRect={viewportRect}
+                onMoveViewport={moveViewportToImagePoint}
+              />
             )}
           </div>
 
@@ -1111,80 +837,5 @@ export function AnnotatableImageViewer({
       )}
 
     </section>
-  );
-}
-
-function AnnotationList({
-  annotations,
-  selectedAnnotationId,
-  onSelect,
-  onRename,
-}: {
-  annotations: ImageAnnotation[];
-  selectedAnnotationId: string | null;
-  onSelect: (annotationId: string) => void;
-  onRename: (annotationId: string, name: string) => void;
-}) {
-  return (
-    <aside className="mt-4 rounded-xl border border-white/10 bg-[#171717]/55 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-white">Annotations</h3>
-        <span className="rounded-md border border-white/10 bg-white/[0.05] px-2 py-1 text-xs text-white/50">
-          {annotations.length}
-        </span>
-      </div>
-      <div className="mt-4 grid max-h-72 gap-3 overflow-y-auto pr-1 md:grid-cols-2 xl:grid-cols-3">
-        {annotations.length === 0 && (
-          <div className="rounded-lg border border-dashed border-white/12 p-6 text-center text-sm text-white/42 md:col-span-2 xl:col-span-3">
-            표시된 객체가 없습니다.
-          </div>
-        )}
-        {annotations.map((annotation, index) => (
-          <article
-            key={annotation.id}
-            className={`rounded-lg border p-3 text-left transition ${
-              selectedAnnotationId === annotation.id
-                ? "border-teal-200/45 bg-teal-300/12"
-                : "border-white/10 bg-white/[0.04] hover:bg-white/[0.07]"
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => onSelect(annotation.id)}
-                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-teal-100 transition hover:bg-white/[0.08]"
-                title="Annotation 선택"
-              >
-                {annotation.type === "polygon" ? (
-                  <Pentagon className="h-4 w-4" />
-                ) : (
-                  <Square className="h-4 w-4" />
-                )}
-              </button>
-              <input
-                value={
-                  annotation.name ||
-                  `${annotation.type === "polygon" ? "Polygon" : "Rectangle"} ${
-                    index + 1
-                  }`
-                }
-                aria-label="Annotation 이름"
-                onChange={(event) => onRename(annotation.id, event.target.value)}
-                className="min-w-0 flex-1 rounded-md border border-white/10 bg-[#111] px-2 py-1 text-sm text-white outline-none focus:border-teal-200/50"
-              />
-            </div>
-            <p className="mt-2 text-xs leading-5 text-white/45">
-              {annotation.type === "polygon"
-                ? "Polygon"
-                : `x ${Math.round(annotation.x)}, y ${Math.round(
-                    annotation.y
-                  )}, w ${Math.round(annotation.width)}, h ${Math.round(
-                    annotation.height
-                  )}`}
-            </p>
-          </article>
-        ))}
-      </div>
-    </aside>
   );
 }

@@ -1,6 +1,8 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useState, useTransition } from "react";
+
+import { ProjectAnnotationReviewViewer } from "@/components/project-annotation-review-viewer";
 
 type ReviewUser = {
   id: string;
@@ -12,6 +14,8 @@ type ReviewRow = {
   id: string;
   registrationNumber: string;
   imageId: string | null;
+  imageUrl: string | null;
+  imageFileName: string | null;
   predictionData: Record<string, string>;
   predictionEdits: Array<{
     userId: string;
@@ -58,42 +62,32 @@ function cellValue(value: string | undefined | null) {
   return value || "-";
 }
 
-function annotationName(annotation: ReviewAnnotation, index: number) {
-  return (
-    annotation.name ||
-    `${annotation.type === "polygon" ? "Polygon" : "Rectangle"} ${index + 1}`
-  );
-}
-
-function annotationPosition(annotation: ReviewAnnotation) {
-  if (annotation.type === "rectangle") {
-    return `x ${Math.round(annotation.x)}, y ${Math.round(
-      annotation.y
-    )}, w ${Math.round(annotation.width)}, h ${Math.round(annotation.height)}`;
-  }
-
-  return annotation.points
-    .map((point) => `(${Math.round(point.x)}, ${Math.round(point.y)})`)
-    .join(" ");
-}
-
 export function ProjectReviewTable({
+  projectId,
   rows,
   sharedUsers,
+  editableColumns,
+  updateEditableColumns,
 }: {
+  projectId: string;
   rows: ReviewRow[];
   sharedUsers: ReviewUser[];
+  editableColumns: string[];
+  updateEditableColumns: (formData: FormData) => Promise<void>;
 }) {
   const columns = useMemo(() => uniqueColumns(rows), [rows]);
   const [selectedColumns, setSelectedColumns] = useState<string[]>(
-    columns[0] ? [columns[0]] : []
+    editableColumns.filter((column) => columns.includes(column))
   );
+  const [saveMessage, setSaveMessage] = useState("");
+  const [isPending, startTransition] = useTransition();
   const visibleColumns = selectedColumns.filter((column) =>
     columns.includes(column)
   );
   const dynamicColumnCount = visibleColumns.length * (sharedUsers.length + 1);
 
   function toggleColumn(column: string) {
+    setSaveMessage("");
     setSelectedColumns((current) =>
       current.includes(column)
         ? current.filter((item) => item !== column)
@@ -102,11 +96,30 @@ export function ProjectReviewTable({
   }
 
   function selectAllColumns() {
+    setSaveMessage("");
     setSelectedColumns(columns);
   }
 
   function clearColumns() {
+    setSaveMessage("");
     setSelectedColumns([]);
+  }
+
+  function saveEditableColumns(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const formData = new FormData();
+    formData.set("projectId", projectId);
+    visibleColumns.forEach((column) => {
+      formData.append("columns", column);
+    });
+
+    startTransition(() => {
+      void updateEditableColumns(formData).then(() => {
+        setSaveMessage("저장되었습니다.");
+        window.setTimeout(() => setSaveMessage(""), 1600);
+      });
+    });
   }
 
   return (
@@ -119,12 +132,21 @@ export function ProjectReviewTable({
             선택한 모델예측 컬럼들을 공유받은 사용자별 편집값으로 비교합니다.
           </p>
         </div>
-        <div className="rounded-xl border border-white/10 bg-[#171717]/55 p-3">
+        <form
+          onSubmit={saveEditableColumns}
+          className="rounded-xl border border-white/10 bg-[#171717]/55 p-3"
+        >
+          <input type="hidden" name="projectId" value={projectId} />
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <span className="text-sm text-white/54">
-              Column {visibleColumns.length}개 선택
-            </span>
-            <div className="flex gap-2">
+            <div>
+              <span className="text-sm text-white/54">
+                Column {visibleColumns.length}개 선택
+              </span>
+              <p className="mt-1 text-xs text-white/38">
+                선택 후 저장하면 프로젝트 평가 화면에서 해당 컬럼만 수정할 수 있습니다.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={selectAllColumns}
@@ -139,8 +161,20 @@ export function ProjectReviewTable({
               >
                 선택 해제
               </button>
+              <button
+                type="submit"
+                disabled={isPending}
+                className="rounded-md border border-teal-200/25 bg-teal-300/12 px-2.5 py-1 text-xs font-medium text-teal-50 transition hover:bg-teal-300/22 disabled:cursor-not-allowed disabled:opacity-55"
+              >
+                {isPending ? "저장 중" : "수정 컬럼 저장"}
+              </button>
             </div>
           </div>
+          {saveMessage && (
+            <p className="mt-2 text-xs font-medium text-teal-200/80">
+              {saveMessage}
+            </p>
+          )}
           <div className="mt-3 flex max-h-36 flex-wrap gap-2 overflow-auto">
             {columns.map((column) => (
               <label
@@ -153,6 +187,8 @@ export function ProjectReviewTable({
               >
                 <input
                   type="checkbox"
+                  name="columns"
+                  value={column}
                   checked={visibleColumns.includes(column)}
                   onChange={() => toggleColumn(column)}
                   className="h-3.5 w-3.5 accent-teal-300"
@@ -164,7 +200,7 @@ export function ProjectReviewTable({
               <span className="text-sm text-white/42">컬럼이 없습니다.</span>
             )}
           </div>
-        </div>
+        </form>
       </div>
 
       <div className="mt-5 max-h-[680px] overflow-auto rounded-xl border border-white/10">
@@ -239,77 +275,7 @@ export function ProjectReviewTable({
         </table>
       </div>
     </section>
-    <section className="mt-6 rounded-2xl border border-white/12 bg-white/[0.06] p-5">
-      <div>
-        <h2 className="text-lg font-semibold">Annotation 위치 취합</h2>
-        <p className="mt-2 text-sm text-white/54">
-          공유받은 사용자가 저장한 annotation 위치를 이미지 pixel 좌표 기준으로 확인합니다.
-        </p>
-      </div>
-
-      <div className="mt-5 max-h-[560px] overflow-auto rounded-xl border border-white/10">
-        <table className="w-full min-w-[980px] text-left text-sm">
-          <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#202020] text-white/50">
-            <tr>
-              <th className="px-4 py-3 font-medium">등록번호</th>
-              <th className="px-4 py-3 font-medium">image_id</th>
-              <th className="px-4 py-3 font-medium">사용자</th>
-              <th className="px-4 py-3 font-medium">Annotation</th>
-              <th className="px-4 py-3 font-medium">종류</th>
-              <th className="px-4 py-3 font-medium">위치</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/8">
-            {rows.flatMap((row) =>
-              row.annotations.flatMap((userAnnotation) =>
-                userAnnotation.annotations.map((annotation, index) => (
-                  <tr
-                    key={`${row.id}-${userAnnotation.userId}-${annotation.id}`}
-                    className="align-top text-white/72"
-                  >
-                    <td className="px-4 py-4 font-medium text-white">
-                      {row.registrationNumber}
-                    </td>
-                    <td className="px-4 py-4">{cellValue(row.imageId)}</td>
-                    <td className="px-4 py-4">
-                      <span className="block text-white">
-                        {userAnnotation.userName}
-                      </span>
-                      <span className="mt-1 block text-xs text-white/38">
-                        {userAnnotation.userEmail}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4">
-                      {annotationName(annotation, index)}
-                    </td>
-                    <td className="px-4 py-4">
-                      {annotation.type === "polygon" ? "Polygon" : "Rectangle"}
-                    </td>
-                    <td className="max-w-xl px-4 py-4 font-mono text-xs leading-5 text-white/64">
-                      {annotationPosition(annotation)}
-                    </td>
-                  </tr>
-                ))
-              )
-            )}
-            {rows.every((row) =>
-              row.annotations.every(
-                (userAnnotation) => userAnnotation.annotations.length === 0
-              )
-            ) && (
-              <tr>
-                <td
-                  colSpan={6}
-                  className="px-4 py-10 text-center text-white/45"
-                >
-                  취합할 annotation이 없습니다.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </section>
+    <ProjectAnnotationReviewViewer rows={rows} />
     </>
   );
 }

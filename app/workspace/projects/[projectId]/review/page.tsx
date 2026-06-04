@@ -1,10 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { revalidatePath } from "next/cache";
 import { notFound } from "next/navigation";
 
 import { ProjectReviewTable } from "@/components/project-review-table";
 import { requireUser } from "@/lib/auth";
 import { normalizeAnnotations } from "@/lib/project-annotations";
+import {
+  buildProjectImageLookup,
+  findProjectImageFile,
+} from "@/lib/project-images";
 import { prisma } from "@/lib/prisma";
 
 export const metadata: Metadata = {
@@ -37,6 +42,45 @@ function toStringRecord(value: unknown) {
   );
 }
 
+function toStringArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+async function updateEditablePredictionColumns(formData: FormData) {
+  "use server";
+
+  const user = await requireUser();
+  const projectId = String(formData.get("projectId") ?? "");
+  const columns = formData
+    .getAll("columns")
+    .filter((column): column is string => typeof column === "string");
+
+  const project = await prisma.project.findFirst({
+    where: {
+      id: projectId,
+      ...(user.role === "ADMIN" ? {} : { ownerId: user.id }),
+    },
+    select: { id: true },
+  });
+
+  if (!project) {
+    return;
+  }
+
+  await prisma.$executeRawUnsafe(
+    'UPDATE "Project" SET "editablePredictionColumns" = $1::jsonb, "updatedAt" = NOW() WHERE "id" = $2',
+    JSON.stringify(columns),
+    project.id
+  );
+
+  revalidatePath(`/workspace/projects/${project.id}`);
+  revalidatePath(`/workspace/projects/${project.id}/review`);
+}
+
 export default async function ProjectReviewPage({
   params,
 }: ProjectReviewPageProps) {
@@ -48,6 +92,7 @@ export default async function ProjectReviewPage({
     },
     include: {
       owner: { select: { name: true, email: true, organization: true } },
+      files: { where: { kind: "IMAGE" } },
       shares: {
         where: { status: "ACCEPTED" },
         include: {
@@ -63,6 +108,7 @@ export default async function ProjectReviewPage({
       },
       cases: {
         include: {
+          imageFile: true,
           predictionEdits: true,
           annotations: {
             include: {
@@ -90,10 +136,34 @@ export default async function ProjectReviewPage({
     name: share.sharedWith.name,
     email: share.sharedWith.email,
   }));
+  const editablePredictionColumns = toStringArray(
+    project.editablePredictionColumns
+  );
+  const imageLookup = buildProjectImageLookup(project.files);
   const rows = project.cases.map((projectCase) => ({
     id: projectCase.id,
     registrationNumber: projectCase.registrationNumber,
     imageId: projectCase.imageId,
+    imageUrl:
+      projectCase.imageFile?.storagePath ??
+      (projectCase.imageFolder && projectCase.imageId
+        ? findProjectImageFile(
+            imageLookup,
+            projectCase.imageFolder,
+            projectCase.imageId
+          )?.storagePath
+        : null) ??
+      null,
+    imageFileName:
+      projectCase.imageFile?.fileName ??
+      (projectCase.imageFolder && projectCase.imageId
+        ? findProjectImageFile(
+            imageLookup,
+            projectCase.imageFolder,
+            projectCase.imageId
+          )?.fileName
+        : null) ??
+      null,
     predictionData: toStringRecord(projectCase.predictionData),
     predictionEdits: projectCase.predictionEdits.map((edit) => ({
       userId: edit.userId,
@@ -139,7 +209,13 @@ export default async function ProjectReviewPage({
           </div>
         </header>
 
-        <ProjectReviewTable rows={rows} sharedUsers={sharedUsers} />
+        <ProjectReviewTable
+          projectId={project.id}
+          rows={rows}
+          sharedUsers={sharedUsers}
+          editableColumns={editablePredictionColumns}
+          updateEditableColumns={updateEditablePredictionColumns}
+        />
       </div>
     </main>
   );

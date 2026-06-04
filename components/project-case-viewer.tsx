@@ -20,7 +20,6 @@ export function ProjectCaseViewer({
   cases: CaseRow[];
 }) {
   const [workingCases, setWorkingCases] = useState(cases);
-  const [comparisonColumn, setComparisonColumn] = useState("");
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(
     cases.find((caseRow) => caseRow.imageUrl)?.id ?? cases[0]?.id ?? null
   );
@@ -64,16 +63,16 @@ export function ProjectCaseViewer({
   }
 
   return (
-    <div className="mt-8 space-y-6">
-      <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_420px]">
+    <div className="mt-8 min-w-0 space-y-6 overflow-x-hidden">
+      <div className="grid min-w-0 gap-6 2xl:grid-cols-[minmax(0,1fr)_480px]">
         <AnnotatableImageViewer
-          key={selectedCase?.id ?? "empty-viewer"}
+          key={`viewer-${selectedCase?.id ?? "empty"}`}
           projectId={projectId}
           caseRow={selectedCase}
         />
 
         <SelectedCaseDataPanel
-          key={selectedCase?.id ?? "empty-data-panel"}
+          key={`data-panel-${selectedCase?.id ?? "empty"}`}
           projectId={projectId}
           currentUserId={currentUserId}
           caseRow={selectedCase}
@@ -86,8 +85,6 @@ export function ProjectCaseViewer({
         currentUserId={currentUserId}
         cases={workingCases}
         columns={predictionColumns}
-        comparisonColumn={comparisonColumn}
-        onComparisonColumnChange={setComparisonColumn}
         onUpdatePrediction={updatePredictionEdit}
         selectedCaseId={selectedCase?.id ?? null}
         onSelectCase={(caseRow) => setSelectedCaseId(caseRow.id)}

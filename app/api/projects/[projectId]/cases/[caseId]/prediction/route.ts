@@ -11,6 +11,14 @@ type RouteContext = {
   }>;
 };
 
+function toStringArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((item): item is string => typeof item === "string");
+}
+
 async function requireProjectAccess(projectId: string, caseId: string) {
   const user = await requireUser();
   const projectCase = await prisma.projectCase.findFirst({
@@ -31,21 +39,41 @@ async function requireProjectAccess(projectId: string, caseId: string) {
         ],
       },
     },
-    select: { id: true },
+    select: {
+      id: true,
+      project: {
+        select: {
+          editablePredictionColumns: true,
+        },
+      },
+    },
   });
 
   if (!projectCase) {
     throw new Error("모델예측 결과를 저장할 수 있는 샘플이 아닙니다.");
   }
 
-  return user;
+  return {
+    user,
+    editablePredictionColumns: toStringArray(
+      projectCase.project.editablePredictionColumns
+    ),
+  };
 }
 
 export async function PUT(request: Request, { params }: RouteContext) {
   try {
     const { projectId, caseId } = await params;
     const body = (await request.json()) as { data?: unknown };
-    const user = await requireProjectAccess(projectId, caseId);
+    const { user, editablePredictionColumns } = await requireProjectAccess(
+      projectId,
+      caseId
+    );
+    const normalizedData = normalizePredictionEdit(body.data);
+    const editableColumnSet = new Set(editablePredictionColumns);
+    const nextData = Object.fromEntries(
+      Object.entries(normalizedData).filter(([key]) => editableColumnSet.has(key))
+    );
 
     await prisma.projectCasePredictionEdit.upsert({
       where: {
@@ -57,10 +85,10 @@ export async function PUT(request: Request, { params }: RouteContext) {
       create: {
         caseId,
         userId: user.id,
-        data: normalizePredictionEdit(body.data),
+        data: nextData,
       },
       update: {
-        data: normalizePredictionEdit(body.data),
+        data: nextData,
       },
     });
 

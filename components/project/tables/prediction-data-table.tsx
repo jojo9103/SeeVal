@@ -25,8 +25,6 @@ export function PredictionDataTable({
   currentUserId,
   cases,
   columns,
-  comparisonColumn,
-  onComparisonColumnChange,
   onUpdatePrediction,
   selectedCaseId,
   onSelectCase,
@@ -35,8 +33,6 @@ export function PredictionDataTable({
   currentUserId: string;
   cases: CaseRow[];
   columns: string[];
-  comparisonColumn: string;
-  onComparisonColumnChange: (column: string) => void;
   onUpdatePrediction: (caseId: string, data: Record<string, string>) => void;
   selectedCaseId: string | null;
   onSelectCase: (caseRow: CaseRow) => void;
@@ -78,14 +74,6 @@ export function PredictionDataTable({
   const visibleCases = sortedCases.slice((page - 1) * pageSize, page * pageSize);
   const firstRow = sortedCases.length === 0 ? 0 : (page - 1) * pageSize + 1;
   const lastRow = Math.min(page * pageSize, sortedCases.length);
-  const comparisonUsers = cases
-    .flatMap((caseRow) => caseRow.predictionEdits)
-    .filter(
-      (edit, index, edits) =>
-        edit.userId !== currentUserId &&
-        edits.findIndex((candidate) => candidate.userId === edit.userId) ===
-          index
-    );
 
   function updateSort(key: string) {
     setPage(1);
@@ -228,21 +216,6 @@ export function PredictionDataTable({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-2 text-sm text-white/54">
-            <span>통합열</span>
-            <select
-              value={comparisonColumn}
-              onChange={(event) => onComparisonColumnChange(event.target.value)}
-              className="max-w-56 rounded-md border border-white/12 bg-[#171717] px-2 py-1 text-sm text-white outline-none transition focus:border-teal-200/50"
-            >
-              <option value="">선택 안함</option>
-              {columns.map((column) => (
-                <option key={column} value={column}>
-                  {column}
-                </option>
-              ))}
-            </select>
-          </label>
           <button
             type="button"
             onClick={savePredictionEdits}
@@ -298,26 +271,13 @@ export function PredictionDataTable({
                   {renderSortButton(column, column)}
                 </th>
               ))}
-              {comparisonColumn &&
-                comparisonUsers.map((edit) => (
-                  <th
-                    key={`${edit.userId}-${comparisonColumn}`}
-                    className="px-4 py-3 font-medium text-amber-100/70"
-                  >
-                    {edit.userName} + {comparisonColumn}
-                  </th>
-                ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-white/8">
             {visibleCases.length === 0 && (
               <tr>
                 <td
-                  colSpan={
-                    columns.length +
-                    2 +
-                    (comparisonColumn ? comparisonUsers.length : 0)
-                  }
+                  colSpan={columns.length + 2}
                   className="px-4 py-10 text-center text-white/45"
                 >
                   표시할 데이터가 없습니다.
@@ -351,7 +311,8 @@ export function PredictionDataTable({
                 </td>
                 {columns.map((column) => (
                   <td key={column} className="max-w-64 px-4 py-4">
-                    {isNumericValue(caseRow.predictionData[column]) ? (
+                    {caseRow.editablePredictionColumns.includes(column) &&
+                    isNumericValue(caseRow.predictionData[column]) ? (
                       <input
                         value={
                           effectivePredictionData(caseRow, currentUserId)[
@@ -387,23 +348,6 @@ export function PredictionDataTable({
                     )}
                   </td>
                 ))}
-                {comparisonColumn &&
-                  comparisonUsers.map((user) => {
-                    const edit = caseRow.predictionEdits.find(
-                      (predictionEdit) => predictionEdit.userId === user.userId
-                    );
-
-                    return (
-                      <td
-                        key={`${caseRow.id}-${user.userId}-${comparisonColumn}`}
-                        className="max-w-64 px-4 py-4 text-amber-50/80"
-                      >
-                        <span className="line-clamp-3 break-words">
-                          {edit?.data[comparisonColumn] || "-"}
-                        </span>
-                      </td>
-                    );
-                  })}
               </tr>
             ))}
           </tbody>

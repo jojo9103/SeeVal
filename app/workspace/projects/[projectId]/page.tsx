@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import path from "path";
 
 import { ProjectCaseViewer } from "@/components/project-case-viewer";
 import { ProjectDataUploadButton } from "@/components/project-data-upload";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import {
+  buildProjectImageLookup,
+  findProjectImageFile,
+} from "@/lib/project-images";
 
 export const metadata: Metadata = {
   title: "SeeV Project",
@@ -38,36 +41,12 @@ function toStringRecord(value: unknown) {
   );
 }
 
-function normalizeImagePart(value: string) {
-  return value
-    .normalize("NFC")
-    .trim()
-    .replace(/\\/g, "/")
-    .replace(/^\/+|\/+$/g, "")
-    .toLowerCase();
-}
+function toStringArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
 
-function imageMatchKey(imageFolder: string, imageId: string) {
-  return `${normalizeImagePart(imageFolder)}::${normalizeImagePart(imageId)}`;
-}
-
-function findImageFile<T extends { fileName: string; storagePath: string }>(
-  imageLookup: Map<string, T>,
-  imageFolder: string,
-  imageId: string
-) {
-  const normalizedFolder = normalizeImagePart(imageFolder);
-  const normalizedImageId = normalizeImagePart(imageId);
-
-  return (
-    imageLookup.get(imageMatchKey(normalizedFolder, normalizedImageId)) ??
-    [...imageLookup.entries()].find(
-      ([key]) =>
-        key.endsWith(`::${normalizedImageId}`) &&
-        key.split("::")[0].endsWith(normalizedFolder)
-    )?.[1] ??
-    null
-  );
+  return value.filter((item): item is string => typeof item === "string");
 }
 
 export default async function ProjectPage({ params }: ProjectPageProps) {
@@ -117,32 +96,11 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
 
   const isOwner = project.ownerId === user.id;
   const canReview = isOwner || user.role === "ADMIN";
-  const imageLookup = new Map(
-    project.files
-      .filter((file) => file.kind === "IMAGE")
-      .flatMap((file) => {
-        const relativePath = (file.relativePath ?? file.fileName)
-          .normalize("NFC")
-          .replace(/\\/g, "/");
-        const directoryName = relativePath.includes("/")
-          ? relativePath.split("/").slice(0, -1).join("/")
-          : "";
-        const folderName = directoryName.split("/").filter(Boolean).at(-1) ?? "";
-        const imageName = path.basename(
-          file.fileName,
-          path.extname(file.fileName)
-        );
-        const folderNames = [
-          folderName,
-          directoryName,
-          ...directoryName.split("/").filter(Boolean),
-        ].filter(Boolean);
-        const imageNames = [imageName, file.fileName];
-
-        return folderNames.flatMap((folder) =>
-          imageNames.map((name) => [imageMatchKey(folder, name), file] as const)
-        );
-      })
+  const editablePredictionColumns = toStringArray(
+    project.editablePredictionColumns
+  );
+  const imageLookup = buildProjectImageLookup(
+    project.files.filter((file) => file.kind === "IMAGE")
   );
   const caseRows = project.cases.map((projectCase) => ({
     id: projectCase.id,
@@ -152,7 +110,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     imageUrl:
       projectCase.imageFile?.storagePath ??
       (projectCase.imageFolder && projectCase.imageId
-        ? findImageFile(
+        ? findProjectImageFile(
             imageLookup,
             projectCase.imageFolder,
             projectCase.imageId
@@ -162,7 +120,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     imageFileName:
       projectCase.imageFile?.fileName ??
       (projectCase.imageFolder && projectCase.imageId
-        ? findImageFile(
+        ? findProjectImageFile(
             imageLookup,
             projectCase.imageFolder,
             projectCase.imageId
@@ -171,6 +129,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
       null,
     clinicalData: toStringRecord(projectCase.clinicalData),
     predictionData: toStringRecord(projectCase.predictionData),
+    editablePredictionColumns,
     predictionEdits: projectCase.predictionEdits.map((edit) => ({
       userId: edit.userId,
       userName: edit.user.name,
@@ -180,8 +139,8 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
   }));
 
   return (
-    <main className="min-h-screen bg-[#171717] px-6 py-8 text-white">
-      <div className="mx-auto max-w-6xl">
+    <main className="min-h-screen overflow-x-hidden bg-[#171717] px-6 py-8 text-white">
+      <div className="mx-auto w-full max-w-[1600px] min-w-0">
         <header className="border-b border-white/10 pb-6">
           <Link
             href="/workspace"
