@@ -71,6 +71,7 @@ export type AdminNotice = {
   message: string;
   createdAt: string;
   authorName: string;
+  readAt: string | null;
 };
 
 export type WorkspaceFormAction = (
@@ -79,6 +80,7 @@ export type WorkspaceFormAction = (
 ) => Promise<WorkspaceActionState>;
 
 export type ShareResponseAction = (formData: FormData) => void | Promise<void>;
+export type NotificationAction = (formData: FormData) => void | Promise<void>;
 
 export const initialState: WorkspaceActionState = {
   type: "idle",

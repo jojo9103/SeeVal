@@ -6,6 +6,11 @@ import { notFound } from "next/navigation";
 import { ProjectReviewTable } from "@/components/project-review-table";
 import { requireUser } from "@/lib/auth";
 import { formatSeoulDateTime } from "@/lib/format-date";
+import {
+  assertRowsWithColumnMetadata,
+  assertValidColumnMetadata,
+  parseColumnMetadataJson,
+} from "@/lib/project-column-metadata";
 import { normalizeAnnotations } from "@/lib/project-annotations";
 import {
   buildProjectImageLookup,
@@ -47,33 +52,96 @@ function toStringArray(value: unknown) {
 async function updateEditablePredictionColumns(formData: FormData) {
   "use server";
 
-  const user = await requireUser();
-  const projectId = String(formData.get("projectId") ?? "");
-  const columns = formData
-    .getAll("columns")
-    .filter((column): column is string => typeof column === "string");
+  try {
+    const user = await requireUser();
+    const projectId = String(formData.get("projectId") ?? "");
+    const columns = formData
+      .getAll("columns")
+      .filter((column): column is string => typeof column === "string");
+    const columnMetadata = parseColumnMetadataJson(
+      String(formData.get("columnMetadata") ?? "[]")
+    ).filter((metadata) => columns.includes(metadata.name));
 
-  const project = await prisma.project.findFirst({
-    where: {
-      id: projectId,
-      deletedAt: null,
-      ...(user.role === "ADMIN" ? {} : { ownerId: user.id }),
-    },
-    select: { id: true },
-  });
+    assertValidColumnMetadata(columnMetadata);
 
-  if (!project) {
-    return;
+    const project = await prisma.project.findFirst({
+      where: {
+        id: projectId,
+        deletedAt: null,
+        ...(user.role === "ADMIN" ? {} : { ownerId: user.id }),
+      },
+      select: {
+        id: true,
+        cases: { select: { predictionData: true } },
+      },
+    });
+
+    if (!project) {
+      return { ok: false, message: "컬럼 설정을 저장할 프로젝트를 찾을 수 없습니다." };
+    }
+
+    assertRowsWithColumnMetadata({
+      rows: project.cases.map((projectCase) =>
+        toStringRecord(projectCase.predictionData)
+      ),
+      metadata: columnMetadata,
+    });
+
+    await prisma.$transaction([
+      prisma.$executeRawUnsafe(
+        'UPDATE "Project" SET "editablePredictionColumns" = $1::jsonb, "updatedAt" = NOW() WHERE "id" = $2',
+        JSON.stringify(columns),
+        project.id
+      ),
+      prisma.projectColumnMetadata.deleteMany({
+        where: {
+          projectId: project.id,
+          name: { notIn: columns },
+        },
+      }),
+      ...columnMetadata.map((metadata) =>
+        prisma.projectColumnMetadata.upsert({
+          where: {
+            projectId_name: {
+              projectId: project.id,
+              name: metadata.name,
+            },
+          },
+          create: {
+            projectId: project.id,
+            name: metadata.name,
+            dataType: metadata.dataType,
+            minValue: metadata.minValue,
+            maxValue: metadata.maxValue,
+            nullable: metadata.nullable,
+            unit: metadata.unit,
+            description: metadata.description,
+          },
+          update: {
+            dataType: metadata.dataType,
+            minValue: metadata.minValue,
+            maxValue: metadata.maxValue,
+            nullable: metadata.nullable,
+            unit: metadata.unit,
+            description: metadata.description,
+          },
+        })
+      ),
+    ]);
+
+    revalidatePath(`/workspace/projects/${project.id}`);
+    revalidatePath(`/workspace/projects/${project.id}/review`);
+
+    return { ok: true, message: "저장되었습니다." };
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "컬럼 설정을 저장하지 못했습니다.",
+    };
   }
-
-  await prisma.$executeRawUnsafe(
-    'UPDATE "Project" SET "editablePredictionColumns" = $1::jsonb, "updatedAt" = NOW() WHERE "id" = $2',
-    JSON.stringify(columns),
-    project.id
-  );
-
-  revalidatePath(`/workspace/projects/${project.id}`);
-  revalidatePath(`/workspace/projects/${project.id}/review`);
 }
 
 export default async function ProjectReviewPage({
@@ -89,6 +157,7 @@ export default async function ProjectReviewPage({
     include: {
       owner: { select: { name: true, email: true, organization: true } },
       files: { where: { kind: "IMAGE" } },
+      columnMetadata: { orderBy: { createdAt: "asc" } },
       shares: {
         where: { status: "ACCEPTED" },
         include: {
@@ -135,6 +204,15 @@ export default async function ProjectReviewPage({
   const editablePredictionColumns = toStringArray(
     project.editablePredictionColumns
   );
+  const columnMetadata = project.columnMetadata.map((metadata) => ({
+    name: metadata.name,
+    dataType: metadata.dataType,
+    minValue: metadata.minValue,
+    maxValue: metadata.maxValue,
+    nullable: metadata.nullable,
+    unit: metadata.unit,
+    description: metadata.description,
+  }));
   const imageLookup = buildProjectImageLookup(project.files);
   const rows = project.cases.map((projectCase) => ({
     id: projectCase.id,
@@ -206,11 +284,28 @@ export default async function ProjectReviewPage({
         </header>
 
         <ProjectReviewTable
+          key={[
+            editablePredictionColumns.join(","),
+            columnMetadata
+              .map((metadata) =>
+                [
+                  metadata.name,
+                  metadata.dataType,
+                  metadata.minValue ?? "",
+                  metadata.maxValue ?? "",
+                  metadata.nullable,
+                  metadata.unit ?? "",
+                  metadata.description ?? "",
+                ].join(":")
+              )
+              .join("|"),
+          ].join("::")}
           projectId={project.id}
           projectName={project.name}
           rows={rows}
           sharedUsers={sharedUsers}
           editableColumns={editablePredictionColumns}
+          columnMetadata={columnMetadata}
           updateEditableColumns={updateEditablePredictionColumns}
         />
       </div>

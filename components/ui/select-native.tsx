@@ -6,12 +6,13 @@ import { cn } from "@/lib/utils";
 export interface SelectNativeProps
   extends React.SelectHTMLAttributes<HTMLSelectElement> {
   children: React.ReactNode;
+  wrapperClassName?: string;
 }
 
 const SelectNative = React.forwardRef<HTMLSelectElement, SelectNativeProps>(
-  ({ className, children, ...props }, ref) => {
+  ({ className, children, wrapperClassName, ...props }, ref) => {
     return (
-      <div className="relative">
+      <div className={cn("relative", wrapperClassName)}>
         <select
           className={cn(
             "peer inline-flex w-full cursor-pointer appearance-none items-center rounded-md border border-white/12 bg-white/[0.04] text-sm text-white/78 shadow-sm transition focus-visible:border-teal-200/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-200/20 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",

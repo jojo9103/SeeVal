@@ -6,9 +6,12 @@ import { Save } from "lucide-react";
 import {
   effectivePredictionData,
   isNumericInputValue,
-  isNumericValue,
 } from "@/components/project/data-utils";
-import type { CaseRow } from "@/components/project/types";
+import type {
+  CaseRow,
+  ColumnDataType,
+  ColumnMetadata,
+} from "@/components/project/types";
 
 type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
 
@@ -16,14 +19,17 @@ export function SelectedCaseDataPanel({
   projectId,
   currentUserId,
   caseRow,
+  columnMetadata,
   onUpdatePrediction,
 }: {
   projectId: string;
   currentUserId: string;
   caseRow: CaseRow | null;
+  columnMetadata: ColumnMetadata[];
   onUpdatePrediction: (caseId: string, data: Record<string, string>) => void;
 }) {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const [saveError, setSaveError] = useState("");
   const clinicalEntries = Object.entries(caseRow?.clinicalData ?? {}).filter(
     ([, value]) => value
   );
@@ -32,6 +38,25 @@ export function SelectedCaseDataPanel({
   );
   const editableColumnSet = new Set(caseRow?.editablePredictionColumns ?? []);
   const hasEditableColumns = editableColumnSet.size > 0;
+  const metadataByColumn = new Map(
+    columnMetadata.map((metadata) => [metadata.name, metadata])
+  );
+
+  function columnDataType(column: string): ColumnDataType {
+    return metadataByColumn.get(column)?.dataType ?? "string";
+  }
+
+  function isInputAllowedByType(value: string, dataType: ColumnDataType) {
+    if (dataType === "int") {
+      return value === "" || /^-?\d*$/.test(value);
+    }
+
+    if (dataType === "float") {
+      return isNumericInputValue(value);
+    }
+
+    return true;
+  }
 
   useEffect(() => {
     if (saveStatus !== "saved") {
@@ -44,7 +69,7 @@ export function SelectedCaseDataPanel({
   }, [saveStatus]);
 
   function updatePredictionValue(column: string, value: string) {
-    if (!caseRow || !isNumericInputValue(value)) {
+    if (!caseRow || !isInputAllowedByType(value, columnDataType(column))) {
       return;
     }
 
@@ -52,6 +77,7 @@ export function SelectedCaseDataPanel({
       ...effectivePredictionData(caseRow, currentUserId),
       [column]: value,
     });
+    setSaveError("");
     setSaveStatus("dirty");
   }
 
@@ -75,11 +101,18 @@ export function SelectedCaseDataPanel({
       );
 
       if (!response.ok) {
-        throw new Error("Failed to save prediction edits.");
+        const result = (await response.json().catch(() => ({}))) as {
+          message?: string;
+        };
+
+        throw new Error(result.message ?? "모델예측 결과를 저장하지 못했습니다.");
       }
 
       setSaveStatus("saved");
-    } catch {
+    } catch (error) {
+      setSaveError(
+        error instanceof Error ? error.message : "모델예측 결과를 저장하지 못했습니다."
+      );
       setSaveStatus("error");
     }
   }
@@ -167,16 +200,47 @@ export function SelectedCaseDataPanel({
                       </th>
                       <td className="px-3 py-2 text-white/76">
                         {caseRow &&
-                        editableColumnSet.has(key) &&
-                        isNumericValue(caseRow.predictionData[key]) ? (
-                          <input
-                            value={value}
-                            inputMode="decimal"
-                            onChange={(event) =>
-                              updatePredictionValue(key, event.target.value)
-                            }
-                            className="w-full rounded-md border border-white/10 bg-[#111]/80 px-2 py-1.5 text-sm text-white outline-none transition focus:border-teal-200/50"
-                          />
+                        editableColumnSet.has(key) ? (
+                          columnDataType(key) === "bool" ? (
+                            <select
+                              value={value}
+                              onChange={(event) =>
+                                updatePredictionValue(key, event.target.value)
+                              }
+                              className="w-full rounded-md border border-white/10 bg-[#111]/80 px-2 py-1.5 text-sm text-white outline-none transition focus:border-teal-200/50"
+                            >
+                              <option value="">-</option>
+                              <option value="true">true</option>
+                              <option value="false">false</option>
+                            </select>
+                          ) : (
+                            <input
+                              value={value}
+                              inputMode={
+                                columnDataType(key) === "int" ||
+                                columnDataType(key) === "float"
+                                  ? "decimal"
+                                  : "text"
+                              }
+                              type={
+                                columnDataType(key) === "int" ||
+                                columnDataType(key) === "float"
+                                  ? "number"
+                                  : "text"
+                              }
+                              step={columnDataType(key) === "int" ? 1 : "any"}
+                              min={
+                                metadataByColumn.get(key)?.minValue ?? undefined
+                              }
+                              max={
+                                metadataByColumn.get(key)?.maxValue ?? undefined
+                              }
+                              onChange={(event) =>
+                                updatePredictionValue(key, event.target.value)
+                              }
+                              className="w-full rounded-md border border-white/10 bg-[#111]/80 px-2 py-1.5 text-sm text-white outline-none transition focus:border-teal-200/50"
+                            />
+                          )
                         ) : (
                           <span className="break-words">{value || "-"}</span>
                         )}
@@ -205,9 +269,9 @@ export function SelectedCaseDataPanel({
               : saveStatus === "saved"
                 ? "저장 완료"
                 : saveStatus === "error"
-                  ? "저장 실패"
+                  ? saveError || "저장 실패"
                   : hasEditableColumns
-                    ? "지정된 숫자 컬럼만 수정할 수 있습니다."
+                    ? "지정된 컬럼만 수정할 수 있습니다."
                     : "수정 허용 컬럼이 지정되지 않아 읽기 전용입니다."}
           </p>
         </section>

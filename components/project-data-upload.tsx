@@ -44,6 +44,12 @@ export function ProjectDataUploadButton({ projectId }: { projectId: string }) {
   const [notice, setNotice] = useState<{
     type: "success" | "error";
     message: string;
+    errors?: Array<{
+      row: number;
+      column: string;
+      value: string;
+      message: string;
+    }>;
   } | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] =
@@ -97,7 +103,15 @@ export function ProjectDataUploadButton({ projectId }: { projectId: string }) {
     };
 
     request.onload = () => {
-      let response: { message?: string } = {};
+      let response: {
+        message?: string;
+        errors?: Array<{
+          row: number;
+          column: string;
+          value: string;
+          message: string;
+        }>;
+      } = {};
 
       try {
         response = JSON.parse(request.responseText) as { message?: string };
@@ -127,6 +141,7 @@ export function ProjectDataUploadButton({ projectId }: { projectId: string }) {
       setNotice({
         type: "error",
         message: response.message ?? "데이터 업데이트 중 오류가 발생했습니다.",
+        errors: response.errors,
       });
     };
 
@@ -247,6 +262,21 @@ export function ProjectDataUploadButton({ projectId }: { projectId: string }) {
                   }`}
                 >
                   {notice.message}
+                  {notice.errors && notice.errors.length > 0 && (
+                    <span className="mt-3 block space-y-1 text-xs">
+                      {notice.errors.slice(0, 5).map((error, index) => (
+                        <span key={`${error.row}-${error.column}-${index}`} className="block">
+                          row {error.row}, {error.column}: {error.message} (
+                          {error.value || "empty"})
+                        </span>
+                      ))}
+                      {notice.errors.length > 5 && (
+                        <span className="block">
+                          외 {notice.errors.length - 5}건
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </p>
               )}
 

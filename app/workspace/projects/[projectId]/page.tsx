@@ -65,6 +65,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     include: {
       owner: { select: { name: true, email: true, organization: true } },
       files: { orderBy: [{ kind: "asc" }, { createdAt: "desc" }] },
+      columnMetadata: { orderBy: { createdAt: "asc" } },
       cases: {
         include: {
           imageFile: true,
@@ -94,6 +95,15 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
   const editablePredictionColumns = toStringArray(
     project.editablePredictionColumns
   );
+  const columnMetadata = project.columnMetadata.map((column) => ({
+    name: column.name,
+    dataType: column.dataType,
+    minValue: column.minValue,
+    maxValue: column.maxValue,
+    nullable: column.nullable,
+    unit: column.unit,
+    description: column.description,
+  }));
   const imageLookup = buildProjectImageLookup(
     project.files.filter((file) => file.kind === "IMAGE")
   );
@@ -180,6 +190,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
             currentUserId={user.id}
             currentUserName={user.name}
             cases={caseRows}
+            columnMetadata={columnMetadata}
           />
         ) : (
           <section className="mt-8 rounded-2xl border border-white/12 bg-white/[0.06] p-6">

@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 
 import { requireUser } from "@/lib/auth";
 import { normalizePredictionEdit } from "@/lib/project-annotations";
+import {
+  assertRowsWithColumnMetadata,
+  ProjectColumnValidationError,
+} from "@/lib/project-column-metadata";
 import { prisma } from "@/lib/prisma";
 
 type RouteContext = {
@@ -45,6 +49,7 @@ async function requireProjectAccess(projectId: string, caseId: string) {
       project: {
         select: {
           editablePredictionColumns: true,
+          columnMetadata: true,
         },
       },
     },
@@ -59,6 +64,7 @@ async function requireProjectAccess(projectId: string, caseId: string) {
     editablePredictionColumns: toStringArray(
       projectCase.project.editablePredictionColumns
     ),
+    columnMetadata: projectCase.project.columnMetadata,
   };
 }
 
@@ -66,15 +72,29 @@ export async function PUT(request: Request, { params }: RouteContext) {
   try {
     const { projectId, caseId } = await params;
     const body = (await request.json()) as { data?: unknown };
-    const { user, editablePredictionColumns } = await requireProjectAccess(
-      projectId,
-      caseId
-    );
+    const { user, editablePredictionColumns, columnMetadata } =
+      await requireProjectAccess(projectId, caseId);
     const normalizedData = normalizePredictionEdit(body.data);
     const editableColumnSet = new Set(editablePredictionColumns);
     const nextData = Object.fromEntries(
       Object.entries(normalizedData).filter(([key]) => editableColumnSet.has(key))
     );
+    const editableMetadata = columnMetadata
+      .filter((column) => editableColumnSet.has(column.name))
+      .map((column) => ({
+        name: column.name,
+        dataType: column.dataType,
+        minValue: column.minValue,
+        maxValue: column.maxValue,
+        nullable: column.nullable,
+        unit: column.unit,
+        description: column.description,
+      }));
+
+    assertRowsWithColumnMetadata({
+      rows: [nextData],
+      metadata: editableMetadata,
+    });
 
     await prisma.projectCasePredictionEdit.upsert({
       where: {
@@ -95,6 +115,17 @@ export async function PUT(request: Request, { params }: RouteContext) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
+    if (error instanceof ProjectColumnValidationError) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: error.message,
+          errors: error.errors,
+        },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json(
       {
         ok: false,

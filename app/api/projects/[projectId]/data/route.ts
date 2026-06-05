@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 
 import { requireUser } from "@/lib/auth";
+import { ProjectColumnValidationError } from "@/lib/project-column-metadata";
 import { updateProjectDataFromFormData } from "@/lib/project-upload";
 
 type RouteContext = {
@@ -29,6 +30,17 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       message: "프로젝트 데이터가 업데이트되었습니다.",
     });
   } catch (error) {
+    if (error instanceof ProjectColumnValidationError) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: error.message,
+          errors: error.errors,
+        },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json(
       {
         ok: false,

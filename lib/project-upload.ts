@@ -3,6 +3,7 @@ import path from "path";
 import * as XLSX from "xlsx";
 
 import { prisma } from "@/lib/prisma";
+import { assertRowsWithColumnMetadata } from "@/lib/project-column-metadata";
 import {
   getProjectFileUrl,
   getProjectUploadDir,
@@ -27,7 +28,10 @@ const imageExtensions = new Set([
 
 type DataRow = Record<string, string>;
 type ProjectFileKind = "CLINICAL_TEXT" | "MODEL_PREDICTION" | "IMAGE";
-type ProjectDataClient = Pick<typeof prisma, "projectFile" | "projectCase">;
+type ProjectDataClient = Pick<
+  typeof prisma,
+  "projectFile" | "projectCase" | "projectColumnMetadata"
+>;
 type SavedProjectFile = {
   id?: string;
   fileName: string;
@@ -332,6 +336,46 @@ function normalizeMatchValue(column: string, value: string) {
   return value.trim().toLowerCase();
 }
 
+function sampleMatchValue(column: string, value: string) {
+  const normalizedValue = normalizeMatchValue(column, value);
+
+  if (column !== imageIdColumn) {
+    return normalizedValue;
+  }
+
+  const extension = path.extname(normalizedValue);
+  const withoutExtension = extension
+    ? normalizedValue.slice(0, -extension.length)
+    : normalizedValue;
+
+  return withoutExtension.split("_")[0] ?? withoutExtension;
+}
+
+function valuesMatchForColumn(
+  column: string,
+  clinicalValue: string,
+  predictionValue: string
+) {
+  const normalizedClinicalValue = normalizeMatchValue(column, clinicalValue);
+  const normalizedPredictionValue = normalizeMatchValue(
+    column,
+    predictionValue
+  );
+
+  if (normalizedClinicalValue === normalizedPredictionValue) {
+    return true;
+  }
+
+  if (column === imageIdColumn) {
+    return (
+      sampleMatchValue(column, clinicalValue) ===
+      sampleMatchValue(column, predictionValue)
+    );
+  }
+
+  return false;
+}
+
 function matchingColumnScore(
   clinicalRow: DataRow,
   predictionRow: DataRow,
@@ -348,10 +392,7 @@ function matchingColumnScore(
       continue;
     }
 
-    if (
-      normalizeMatchValue(column, clinicalValue) ===
-      normalizeMatchValue(column, predictionValue)
-    ) {
+    if (valuesMatchForColumn(column, clinicalValue, predictionValue)) {
       matched += 1;
       continue;
     }
@@ -445,7 +486,7 @@ async function saveProjectFiles({
   return savedFiles;
 }
 
-async function rebuildProjectCases(
+export async function rebuildProjectCases(
   projectId: string,
   db: ProjectDataClient = prisma
 ) {
@@ -470,6 +511,24 @@ async function rebuildProjectCases(
     parseSavedDataFiles(clinicalFiles),
     parseSavedDataFiles(predictionFiles),
   ]);
+  const columnMetadata = await db.projectColumnMetadata.findMany({
+    where: { projectId },
+  });
+
+  assertRowsWithColumnMetadata({
+    rows: predictionRows,
+    metadata: columnMetadata.map((column) => ({
+      name: column.name,
+      dataType: column.dataType,
+      minValue: column.minValue,
+      maxValue: column.maxValue,
+      nullable: column.nullable,
+      unit: column.unit,
+      description: column.description,
+    })),
+    startRow: 2,
+  });
+
   const commonColumns = sharedColumns(clinicalRows, predictionRows);
   const imageLookup = buildImageLookup(
     files.filter((file) => file.kind === "IMAGE")

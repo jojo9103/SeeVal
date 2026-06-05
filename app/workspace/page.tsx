@@ -25,6 +25,103 @@ async function logout() {
   redirect("/auth");
 }
 
+async function markAdminNoticesRead(formData: FormData) {
+  "use server";
+
+  const currentUser = await requireUser();
+  const noticeIds = formData
+    .getAll("noticeIds")
+    .map((value) => String(value))
+    .filter(Boolean);
+
+  if (noticeIds.length === 0) {
+    return;
+  }
+
+  const now = new Date();
+  const notices = await prisma.adminNotice.findMany({
+    where: {
+      id: { in: noticeIds },
+      deletedAt: null,
+      recalledAt: null,
+    },
+    select: { id: true },
+  });
+
+  if (notices.length === 0) {
+    return;
+  }
+
+  await prisma.$transaction(
+    notices.map((notice) =>
+      prisma.adminNoticeReceipt.upsert({
+        where: {
+          noticeId_userId: {
+            noticeId: notice.id,
+            userId: currentUser.id,
+          },
+        },
+        create: {
+          noticeId: notice.id,
+          userId: currentUser.id,
+          readAt: now,
+        },
+        update: {
+          readAt: now,
+        },
+      })
+    )
+  );
+
+  revalidatePath("/workspace");
+}
+
+async function dismissAdminNotice(formData: FormData) {
+  "use server";
+
+  const currentUser = await requireUser();
+  const noticeId = String(formData.get("noticeId") ?? "");
+
+  if (!noticeId) {
+    return;
+  }
+
+  const notice = await prisma.adminNotice.findFirst({
+    where: {
+      id: noticeId,
+      deletedAt: null,
+    },
+    select: { id: true },
+  });
+
+  if (!notice) {
+    return;
+  }
+
+  const now = new Date();
+
+  await prisma.adminNoticeReceipt.upsert({
+    where: {
+      noticeId_userId: {
+        noticeId: notice.id,
+        userId: currentUser.id,
+      },
+    },
+    create: {
+      noticeId: notice.id,
+      userId: currentUser.id,
+      readAt: now,
+      dismissedAt: now,
+    },
+    update: {
+      readAt: now,
+      dismissedAt: now,
+    },
+  });
+
+  revalidatePath("/workspace");
+}
+
 async function updateProfile(
   _state: WorkspaceActionState,
   formData: FormData
@@ -373,9 +470,20 @@ export default async function WorkspacePage() {
         where: {
           deletedAt: null,
           recalledAt: null,
+          receipts: {
+            none: {
+              userId: user.id,
+              dismissedAt: { not: null },
+            },
+          },
         },
         include: {
           author: { select: { name: true } },
+          receipts: {
+            where: { userId: user.id },
+            select: { readAt: true, dismissedAt: true },
+            take: 1,
+          },
         },
         orderBy: { createdAt: "desc" },
         take: 10,
@@ -427,6 +535,7 @@ export default async function WorkspacePage() {
     message: notice.message,
     createdAt: notice.createdAt.toISOString(),
     authorName: notice.author.name,
+    readAt: notice.receipts[0]?.readAt?.toISOString() ?? null,
   }));
   const projects = [...ownedProjects, ...sharedProjects].map((project) => ({
     id: project.id,
@@ -475,6 +584,8 @@ export default async function WorkspacePage() {
               requests={incomingShareRequests}
               notices={notices}
               acceptShare={acceptShare}
+              dismissNotice={dismissAdminNotice}
+              markNoticesRead={markAdminNoticesRead}
               rejectShare={rejectShare}
             />
             <EditProfileButton user={user} action={updateProfile} />

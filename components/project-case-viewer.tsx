@@ -6,18 +6,20 @@ import { uniqueColumns } from "@/components/project/data-utils";
 import { AnnotatableImageViewer } from "@/components/project/image-viewer/annotatable-image-viewer";
 import { PredictionDataTable } from "@/components/project/tables/prediction-data-table";
 import { SelectedCaseDataPanel } from "@/components/project/tables/selected-case-data-panel";
-import type { CaseRow } from "@/components/project/types";
+import type { CaseRow, ColumnMetadata } from "@/components/project/types";
 
 export function ProjectCaseViewer({
   projectId,
   currentUserId,
   currentUserName,
   cases,
+  columnMetadata,
 }: {
   projectId: string;
   currentUserId: string;
   currentUserName: string;
   cases: CaseRow[];
+  columnMetadata: ColumnMetadata[];
 }) {
   const [workingCases, setWorkingCases] = useState(cases);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(
@@ -102,6 +104,7 @@ export function ProjectCaseViewer({
           projectId={projectId}
           currentUserId={currentUserId}
           caseRow={selectedCase}
+          columnMetadata={columnMetadata}
           onUpdatePrediction={updatePredictionEdit}
         />
       </div>
@@ -111,6 +114,7 @@ export function ProjectCaseViewer({
         currentUserId={currentUserId}
         cases={workingCases}
         columns={predictionColumns}
+        columnMetadata={columnMetadata}
         onUpdatePrediction={updatePredictionEdit}
         selectedCaseId={selectedCase?.id ?? null}
         onSelectCase={(caseRow) => setSelectedCaseId(caseRow.id)}

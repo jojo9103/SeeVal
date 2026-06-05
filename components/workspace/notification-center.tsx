@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { Bell, Check, Megaphone, X } from "lucide-react";
+import { useMemo, useState, useTransition } from "react";
+import { Bell, Check, Megaphone, Trash2, X } from "lucide-react";
 
 import { formatDate } from "@/components/workspace/format";
 import type {
   AdminNotice,
+  NotificationAction,
   ShareRequest,
   ShareResponseAction,
 } from "@/components/workspace/types";
@@ -14,21 +15,63 @@ export function NotificationCenter({
   requests,
   notices,
   acceptShare,
+  dismissNotice,
+  markNoticesRead,
   rejectShare,
 }: {
   requests: ShareRequest[];
   notices: AdminNotice[];
   acceptShare: ShareResponseAction;
+  dismissNotice: NotificationAction;
+  markNoticesRead: NotificationAction;
   rejectShare: ShareResponseAction;
 }) {
   const [open, setOpen] = useState(false);
-  const notificationCount = requests.length + notices.length;
+  const [dismissedNoticeIds, setDismissedNoticeIds] = useState<string[]>([]);
+  const [locallyReadNoticeIds, setLocallyReadNoticeIds] = useState<string[]>([]);
+  const [, startTransition] = useTransition();
+  const visibleNotices = useMemo(
+    () => notices.filter((notice) => !dismissedNoticeIds.includes(notice.id)),
+    [dismissedNoticeIds, notices]
+  );
+  const unreadNoticeIds = useMemo(
+    () =>
+      visibleNotices
+        .filter(
+          (notice) =>
+            !notice.readAt && !locallyReadNoticeIds.includes(notice.id)
+        )
+        .map((notice) => notice.id),
+    [locallyReadNoticeIds, visibleNotices]
+  );
+  const notificationCount = requests.length + unreadNoticeIds.length;
+
+  function toggleNotificationCenter() {
+    const nextOpen = !open;
+
+    if (nextOpen && unreadNoticeIds.length > 0) {
+      const formData = new FormData();
+
+      unreadNoticeIds.forEach((noticeId) => {
+        formData.append("noticeIds", noticeId);
+      });
+      setLocallyReadNoticeIds((current) => [
+        ...current,
+        ...unreadNoticeIds.filter((noticeId) => !current.includes(noticeId)),
+      ]);
+      startTransition(() => {
+        void markNoticesRead(formData);
+      });
+    }
+
+    setOpen(nextOpen);
+  }
 
   return (
     <div className="relative">
       <button
         type="button"
-        onClick={() => setOpen((current) => !current)}
+        onClick={toggleNotificationCenter}
         className="relative inline-flex h-10 items-center gap-2 rounded-md border border-white/14 bg-white/[0.07] px-3 text-sm font-medium text-white/78 transition hover:bg-white/12 hover:text-white"
       >
         <Bell className="h-4 w-4" />
@@ -108,22 +151,47 @@ export function NotificationCenter({
             <div>
               <h3 className="text-sm font-semibold text-white">ADMIN 공지사항</h3>
               <div className="mt-2 grid gap-2">
-                {notices.length === 0 && (
+                {visibleNotices.length === 0 && (
                   <div className="rounded-lg border border-dashed border-white/12 p-4 text-center text-sm text-white/42">
                     표시할 공지사항이 없습니다.
                   </div>
                 )}
-                {notices.map((notice) => (
+                {visibleNotices.map((notice) => (
                   <article
                     key={notice.id}
                     className="rounded-lg border border-amber-300/25 bg-amber-300/10 p-3"
                   >
                     <div className="flex items-start gap-2.5">
                       <Megaphone className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-100" />
-                      <div>
-                        <p className="font-medium text-amber-50">
-                          {notice.title}
-                        </p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-3">
+                          <p className="font-medium text-amber-50">
+                            {notice.title}
+                          </p>
+                          <form
+                            action={dismissNotice}
+                            onSubmit={() =>
+                              setDismissedNoticeIds((current) =>
+                                current.includes(notice.id)
+                                  ? current
+                                  : [...current, notice.id]
+                              )
+                            }
+                          >
+                            <input
+                              type="hidden"
+                              name="noticeId"
+                              value={notice.id}
+                            />
+                            <button
+                              type="submit"
+                              className="inline-flex items-center gap-1 rounded-md border border-amber-100/15 bg-black/10 px-2 py-1 text-xs font-medium text-amber-50/70 transition hover:bg-black/20 hover:text-amber-50"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              삭제
+                            </button>
+                          </form>
+                        </div>
                         <p className="mt-1 text-xs text-amber-50/55">
                           {notice.authorName} · {formatDate(notice.createdAt)}
                         </p>

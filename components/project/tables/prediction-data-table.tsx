@@ -14,17 +14,22 @@ import {
   collator,
   effectivePredictionData,
   isNumericInputValue,
-  isNumericValue,
   pageSizeOptions,
   tableValue,
 } from "@/components/project/data-utils";
-import type { CaseRow, SortConfig } from "@/components/project/types";
+import type {
+  CaseRow,
+  ColumnDataType,
+  ColumnMetadata,
+  SortConfig,
+} from "@/components/project/types";
 
 export function PredictionDataTable({
   projectId,
   currentUserId,
   cases,
   columns,
+  columnMetadata,
   onUpdatePrediction,
   selectedCaseId,
   onSelectCase,
@@ -33,6 +38,7 @@ export function PredictionDataTable({
   currentUserId: string;
   cases: CaseRow[];
   columns: string[];
+  columnMetadata: ColumnMetadata[];
   onUpdatePrediction: (caseId: string, data: Record<string, string>) => void;
   selectedCaseId: string | null;
   onSelectCase: (caseRow: CaseRow) => void;
@@ -41,6 +47,7 @@ export function PredictionDataTable({
   const [saveStatus, setSaveStatus] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
+  const [saveError, setSaveError] = useState("");
   const [sortConfig, setSortConfig] = useState<SortConfig>({
     key: "registrationNumber",
     direction: "asc",
@@ -74,6 +81,26 @@ export function PredictionDataTable({
   const visibleCases = sortedCases.slice((page - 1) * pageSize, page * pageSize);
   const firstRow = sortedCases.length === 0 ? 0 : (page - 1) * pageSize + 1;
   const lastRow = Math.min(page * pageSize, sortedCases.length);
+  const metadataByColumn = useMemo(
+    () => new Map(columnMetadata.map((metadata) => [metadata.name, metadata])),
+    [columnMetadata]
+  );
+
+  function columnDataType(column: string): ColumnDataType {
+    return metadataByColumn.get(column)?.dataType ?? "string";
+  }
+
+  function isInputAllowedByType(value: string, dataType: ColumnDataType) {
+    if (dataType === "int") {
+      return value === "" || /^-?\d*$/.test(value);
+    }
+
+    if (dataType === "float") {
+      return isNumericInputValue(value);
+    }
+
+    return true;
+  }
 
   function updateSort(key: string) {
     setPage(1);
@@ -91,6 +118,7 @@ export function PredictionDataTable({
 
   function markDirty(caseId: string) {
     setSaveStatus("idle");
+    setSaveError("");
     setDirtyCaseIds((current) =>
       current.includes(caseId) ? current : [...current, caseId]
     );
@@ -121,9 +149,15 @@ export function PredictionDataTable({
                 data: effectivePredictionData(caseRow, currentUserId),
               }),
             }
-          ).then((response) => {
+          ).then(async (response) => {
             if (!response.ok) {
-              throw new Error("모델예측 결과를 저장하지 못했습니다.");
+              const result = (await response.json().catch(() => ({}))) as {
+                message?: string;
+              };
+
+              throw new Error(
+                result.message ?? "모델예측 결과를 저장하지 못했습니다."
+              );
             }
           });
         })
@@ -131,7 +165,10 @@ export function PredictionDataTable({
 
       setDirtyCaseIds([]);
       setSaveStatus("saved");
-    } catch {
+    } catch (error) {
+      setSaveError(
+        error instanceof Error ? error.message : "모델예측 결과를 저장하지 못했습니다."
+      );
       setSaveStatus("error");
     }
   }
@@ -172,7 +209,7 @@ export function PredictionDataTable({
     }
 
     if (saveStatus === "error") {
-      return "저장 실패";
+      return saveError || "저장 실패";
     }
 
     if (dirtyCaseIds.length > 0) {
@@ -311,34 +348,84 @@ export function PredictionDataTable({
                 </td>
                 {columns.map((column) => (
                   <td key={column} className="max-w-64 px-4 py-4">
-                    {caseRow.editablePredictionColumns.includes(column) &&
-                    isNumericValue(caseRow.predictionData[column]) ? (
-                      <input
-                        value={
-                          effectivePredictionData(caseRow, currentUserId)[
-                            column
-                          ] ?? ""
-                        }
-                        inputMode="decimal"
-                        onChange={(event) => {
-                          if (!isNumericInputValue(event.target.value)) {
-                            return;
+                    {caseRow.editablePredictionColumns.includes(column) ? (
+                      columnDataType(column) === "bool" ? (
+                        <select
+                          value={
+                            effectivePredictionData(caseRow, currentUserId)[
+                              column
+                            ] ?? ""
                           }
+                          onChange={(event) => {
+                            const currentData = effectivePredictionData(
+                              caseRow,
+                              currentUserId
+                            );
+                            const nextData = {
+                              ...currentData,
+                              [column]: event.target.value,
+                            };
 
-                          const currentData = effectivePredictionData(
-                            caseRow,
-                            currentUserId
-                          );
-                          const nextData = {
-                            ...currentData,
-                            [column]: event.target.value,
-                          };
+                            onUpdatePrediction(caseRow.id, nextData);
+                            markDirty(caseRow.id);
+                          }}
+                          className="w-full min-w-36 rounded-md border border-white/10 bg-[#111]/80 px-2 py-1.5 text-sm text-white outline-none transition focus:border-teal-200/50"
+                        >
+                          <option value="">-</option>
+                          <option value="true">true</option>
+                          <option value="false">false</option>
+                        </select>
+                      ) : (
+                        <input
+                          value={
+                            effectivePredictionData(caseRow, currentUserId)[
+                              column
+                            ] ?? ""
+                          }
+                          inputMode={
+                            columnDataType(column) === "int" ||
+                            columnDataType(column) === "float"
+                              ? "decimal"
+                              : "text"
+                          }
+                          type={
+                            columnDataType(column) === "int" ||
+                            columnDataType(column) === "float"
+                              ? "number"
+                              : "text"
+                          }
+                          step={columnDataType(column) === "int" ? 1 : "any"}
+                          min={
+                            metadataByColumn.get(column)?.minValue ?? undefined
+                          }
+                          max={
+                            metadataByColumn.get(column)?.maxValue ?? undefined
+                          }
+                          onChange={(event) => {
+                            if (
+                              !isInputAllowedByType(
+                                event.target.value,
+                                columnDataType(column)
+                              )
+                            ) {
+                              return;
+                            }
 
-                          onUpdatePrediction(caseRow.id, nextData);
-                          markDirty(caseRow.id);
-                        }}
-                        className="w-full min-w-36 rounded-md border border-white/10 bg-[#111]/80 px-2 py-1.5 text-sm text-white outline-none transition focus:border-teal-200/50"
-                      />
+                            const currentData = effectivePredictionData(
+                              caseRow,
+                              currentUserId
+                            );
+                            const nextData = {
+                              ...currentData,
+                              [column]: event.target.value,
+                            };
+
+                            onUpdatePrediction(caseRow.id, nextData);
+                            markDirty(caseRow.id);
+                          }}
+                          className="w-full min-w-36 rounded-md border border-white/10 bg-[#111]/80 px-2 py-1.5 text-sm text-white outline-none transition focus:border-teal-200/50"
+                        />
+                      )
                     ) : (
                       <span className="line-clamp-3 break-words">
                         {effectivePredictionData(caseRow, currentUserId)[

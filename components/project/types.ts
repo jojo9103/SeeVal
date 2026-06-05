@@ -16,6 +16,18 @@ export type CaseRow = {
   }>;
 };
 
+export type ColumnDataType = "int" | "float" | "string" | "category" | "bool";
+
+export type ColumnMetadata = {
+  name: string;
+  dataType: ColumnDataType;
+  minValue: number | null;
+  maxValue: number | null;
+  nullable: boolean;
+  unit: string | null;
+  description: string | null;
+};
+
 export type Point = {
   x: number;
   y: number;

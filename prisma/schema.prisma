@@ -43,6 +43,14 @@ enum ProjectShareStatus {
   REJECTED
 }
 
+enum ColumnDataType {
+  int
+  float
+  string
+  category
+  bool
+}
+
 model User {
   id             String    @id @default(cuid())
   email          String    @unique
@@ -63,6 +71,7 @@ model User {
   caseAnnotations ProjectCaseAnnotation[]
   predictionEdits ProjectCasePredictionEdit[]
   adminNotices    AdminNotice[]   @relation("AdminNoticeAuthor")
+  adminNoticeReceipts AdminNoticeReceipt[]
 
   @@index([status])
   @@index([organization])
@@ -112,9 +121,30 @@ model Project {
   files       ProjectFile[]
   shares      ProjectShare[]
   cases       ProjectCase[]
+  columnMetadata ProjectColumnMetadata[]
 
   @@index([ownerId, createdAt])
   @@index([deletedAt])
+}
+
+model ProjectColumnMetadata {
+  id          String         @id @default(cuid())
+  name        String
+  dataType    ColumnDataType @default(string)
+  minValue    Float?
+  maxValue    Float?
+  nullable    Boolean        @default(true)
+  unit        String?
+  description String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  projectId   String
+  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, name])
+  @@index([projectId])
+  @@index([dataType])
 }
 
 model ProjectFile {
@@ -213,9 +243,28 @@ model AdminNotice {
 
   authorId  String
   author    User     @relation("AdminNoticeAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  receipts  AdminNoticeReceipt[]
 
   @@index([createdAt])
   @@index([authorId])
   @@index([recalledAt])
   @@index([deletedAt])
+}
+
+model AdminNoticeReceipt {
+  id          String   @id @default(cuid())
+  readAt      DateTime?
+  dismissedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  noticeId    String
+  notice      AdminNotice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([noticeId, userId])
+  @@index([userId, dismissedAt])
+  @@index([noticeId])
+  @@index([readAt])
 }

@@ -22,6 +22,8 @@
   - 프로젝트 소유자 또는 ADMIN만 접근합니다.
   - 공유받은 사용자들의 수정 결과를 케이스별 표로 보여줍니다.
   - `ProjectReviewTable`에 프로젝트명, 공유 사용자, 케이스별 원본/수정값, 수정 허용 column 저장 action을 넘깁니다.
+  - `updateEditablePredictionColumns` server action에서 수정 허용 column과 `ProjectColumnMetadata`를 함께 저장합니다.
+  - 컬럼 metadata 저장 전 기존 모델예측 데이터가 타입/min/max/nullable 규칙을 통과하는지 검증합니다.
 
 ## Project Viewer Components
 
@@ -29,9 +31,11 @@
   - 프로젝트 평가 화면의 최상위 조립 컴포넌트입니다.
   - 선택된 case, 예측값 편집 상태, 비교 column 상태를 관리합니다.
   - 실제 UI는 아래 컴포넌트로 위임합니다.
+  - 프로젝트별 column metadata를 모델예측 테이블과 선택 데이터 패널에 전달합니다.
 
 - `components/project/types.ts`
   - `CaseRow`, annotation 타입, drag state, table sort 타입을 모아둔 파일입니다.
+  - `ColumnDataType`, `ColumnMetadata` 타입도 함께 정의합니다.
   - 프로젝트 평가 화면에서 공유하는 데이터 계약입니다.
 
 - `components/project/data-utils.ts`
@@ -79,18 +83,40 @@
 - `components/project/tables/prediction-data-table.tsx`
   - 모델예측 결과 테이블입니다.
   - `image_id` 클릭 시 Image Viewer의 선택 case를 바꿉니다.
-  - 프로젝트별 수정 허용 column에 포함된 숫자형 값만 수정 가능하며, 저장 버튼으로 사용자별 편집값을 저장합니다.
+  - 프로젝트별 수정 허용 column에 포함된 값을 수정 가능하며, column metadata에 따라 int/float/string/category/bool 입력 UI를 사용합니다.
+  - int는 정수 입력, float은 소수 입력을 허용하고 min/max 속성을 반영합니다.
+  - 저장 버튼으로 사용자별 편집값을 저장하며, backend validation 실패 메시지를 표시합니다.
   - 정렬, 페이지네이션, 30/60/90 rows 표시 옵션을 지원합니다.
   - 임상데이터와 모델예측 데이터는 고정 컬럼이 아니라 양쪽 데이터의 공통 컬럼 값으로 연결됩니다.
+
+- `components/project/tables/selected-case-data-panel.tsx`
+  - 선택된 샘플의 임상데이터와 모델예측 결과를 side panel로 보여줍니다.
+  - 수정 허용 column은 column metadata에 따라 int/float/string/category/bool 입력 UI를 사용합니다.
+  - 저장 실패 시 backend validation 메시지를 표시합니다.
 
 - `components/project-review-table.tsx`
   - 평가 취합 페이지의 테이블입니다.
   - 여러 column을 체크박스로 선택할 수 있습니다.
   - 각 column은 원본값과 `column name (공유받은사람이름)` 형태의 사용자별 편집값으로 펼쳐집니다.
   - 선택한 column을 저장하면 프로젝트 평가 화면에서 해당 column만 모델예측 수정 가능 항목이 됩니다.
+  - `컬럼 설정` 버튼을 누르면 배너/모달 형식으로 선택 column의 metadata를 수정합니다.
+  - metadata 필드: `dataType`, `minValue`, `maxValue`, `nullable`, `unit`, `description`.
+  - `dataType`이 `int` 또는 `float`일 때만 min/max 입력칸을 보여줍니다.
+  - int는 `step=1`, float은 `step=any` 입력을 사용합니다.
+  - min value가 max value보다 크면 저장하지 않습니다.
   - `CSV`, `TSV`, `Excel` 중 저장 형식을 선택한 뒤 `저장하기`를 누르면 현재 취합 결과를 파일로 내려받습니다.
   - 내보내기 데이터는 현재 선택된 column 기준이며, `sample`, `image_id`, 원본값, 공유 사용자별 수정값 순서로 구성됩니다.
   - CSV/TSV는 브라우저 Blob 다운로드를 사용하고, Excel은 `xlsx`의 `aoa_to_sheet`/`writeFile`을 사용합니다.
+
+- `lib/project-column-metadata.ts`
+  - 프로젝트별 동적 column metadata 정규화와 validation을 담당합니다.
+  - 지원 타입: `int`, `float`, `string`, `category`, `bool`.
+  - 검증 규칙: int 정수, float 숫자, bool boolean-like 값, min/max 범위, nullable=false 빈 값 금지.
+  - validation 실패 시 `{ row, column, value, message }` 배열을 포함한 `ProjectColumnValidationError`를 던집니다.
+
+- `tests/project-column-validation.test.ts`
+  - column metadata validation 단위 테스트입니다.
+  - int에 float/string 입력 실패, float에 string 입력 실패, min/max/nullable 실패와 정상 범위를 검증합니다.
 
 - `components/ui/select-native.tsx`
   - 기본 HTML `select`를 SeeV 어두운 UI에 맞춰 감싼 공통 컴포넌트입니다.
@@ -105,6 +131,8 @@
 - `app/api/projects/[projectId]/cases/[caseId]/prediction/route.ts`
   - 사용자별 모델예측 수정값 저장 API입니다.
   - DB의 `ProjectCasePredictionEdit` 모델을 사용합니다.
+  - 저장 전에 수정 허용 column의 `ProjectColumnMetadata` 규칙으로 입력값을 검증합니다.
+  - 실패 시 `{ row, column, value, message }` 형태의 오류 목록을 반환합니다.
 
 ## Upload And Project Data
 
@@ -113,8 +141,10 @@
   - CSV/XLSX/XLS 임상데이터와 모델예측 데이터를 파싱합니다.
   - 이미지 폴더 업로드 시 비이미지 파일은 제외합니다.
   - 임상데이터와 모델예측 데이터는 공통 컬럼 중 값이 일치하고 충돌하지 않는 row를 기준으로 연결합니다.
+  - 공통 컬럼이 `image_id`인 경우 `YWDIF064`와 `YWDIF064_C3`처럼 샘플 ID 뒤에 이미지/염색 suffix가 붙은 예측 row도 같은 임상 row로 연결합니다.
   - `image_folder`와 `image_id`를 기반으로 업로드 이미지와 prediction row를 연결합니다. `image_folder`는 이미지 폴더/파일 매칭에 쓰입니다.
   - 데이터 교체 업로드는 DB 삭제/생성/케이스 재생성을 트랜잭션으로 묶어 중간 실패에 더 강하게 처리합니다.
+  - 프로젝트에 `ProjectColumnMetadata`가 설정되어 있으면 모델예측 업로드 rows를 먼저 validation하고, 오류가 있으면 저장하지 않습니다.
 
 - `lib/project-storage.ts`
   - 업로드 파일 저장 경로와 `/api/project-files/...` 파일 URL 생성을 담당합니다.
@@ -126,9 +156,11 @@
 
 - `components/project-data-upload.tsx`
   - 기존 프로젝트에 임상데이터/모델예측/이미지를 추가 또는 교체하는 업로드 UI입니다.
+  - 업로드 validation 실패 시 row/column/value/message 일부를 사용자에게 보여줍니다.
 
 - `app/api/projects/[projectId]/data/route.ts`
   - 프로젝트 데이터 추가/변경 API입니다.
+  - 업로드 데이터 validation 실패 시 구조화된 오류 목록을 반환합니다.
 
 ## Sharing And Aggregation
 
@@ -142,7 +174,10 @@
   - `create-project-modal.tsx`: 프로젝트 생성과 업로드 진행률 표시 UI를 담당합니다.
   - `share-project-modal.tsx`: 공유 대상 검색 및 공유 요청/바로 공유 UI를 담당합니다.
   - `share-status-list.tsx`: 프로젝트별 공유 요청 상태와 공유 허가된 사용자 목록을 보여줍니다.
-  - `notification-center.tsx`: 받은 공유 요청 수락/거절과 ADMIN 공지사항 배너 확인을 담당합니다.
+  - `notification-center.tsx`: 받은 공유 요청 수락/거절, ADMIN 공지사항 확인/삭제, Notification badge 표시를 담당합니다.
+    - 공유 요청은 `PENDING` 상태일 때만 표시되고 수락/거절하면 사라집니다.
+    - ADMIN 공지는 알림창을 열면 사용자별 `readAt`이 기록되어 badge count에서 빠집니다.
+    - 공지 `삭제`는 전체 공지를 삭제하지 않고 사용자별 `dismissedAt`을 기록해 본인 Notification에서만 숨깁니다.
   - `edit-profile-button.tsx`: 회원 정보 수정 모달입니다.
   - `common.tsx`, `format.ts`, `types.ts`: 공통 모달/배너/표시 포맷/타입을 담당합니다.
 
@@ -150,6 +185,12 @@
   - 관리자 계정 승인/거절, ADMIN 업로드 프로젝트 확인, ADMIN 공지사항 server action을 담당합니다.
   - 등록된 ADMIN 공지사항은 workspace Notification에 배너 형식으로 표시됩니다.
   - 공지사항 create/update/recall/republish/delete action을 정의하고 `AdminNoticeSection`에 넘깁니다.
+
+- `app/workspace/page.tsx`
+  - Workspace 데이터 조회와 workspace server action을 담당합니다.
+  - `markAdminNoticesRead`: Notification을 연 사용자의 ADMIN 공지를 읽음 처리합니다.
+  - `dismissAdminNotice`: 특정 ADMIN 공지를 사용자별로 숨김 처리합니다.
+  - ADMIN 공지 조회 시 `AdminNoticeReceipt.dismissedAt`이 있는 공지는 해당 사용자에게 표시하지 않습니다.
 
 - `components/admin-notice-banner-composer.tsx`
   - `AdminNoticeSection`: ADMIN 공지사항 영역 전체를 조립합니다.
@@ -165,10 +206,19 @@
     - `ProjectCaseAnnotation`
     - `ProjectCasePredictionEdit`
     - `AdminNotice`
+    - `ProjectColumnMetadata`
   - annotation과 prediction edit는 모두 `caseId + userId` 기준으로 사용자별 저장됩니다.
   - `Project.deletedAt`은 soft delete에 사용됩니다. 삭제된 프로젝트는 일반 목록/상세/API 접근에서 제외됩니다.
   - `AdminNotice`는 ADMIN 공지사항을 저장하고 작성자 USER와 연결됩니다.
   - `AdminNotice.recalledAt`은 공지 회수에 사용되며, `deletedAt`은 공지 삭제에 사용됩니다.
+  - `AdminNoticeReceipt`는 사용자별 공지 읽음/숨김 상태를 저장합니다.
+    - `readAt`: 사용자가 Notification을 열어 공지를 확인한 시점입니다.
+    - `dismissedAt`: 사용자가 본인 Notification에서 공지를 삭제한 시점입니다.
+  - `ProjectColumnMetadata`는 프로젝트별 모델예측 column 설정을 저장합니다.
+    - `dataType`: `int`, `float`, `string`, `category`, `bool`.
+    - `minValue`, `maxValue`: 숫자형 column 범위 제한입니다.
+    - `nullable`: 빈 값 허용 여부입니다.
+    - `unit`, `description`: 표시/설명용 선택 metadata입니다.
 
 - `scripts/backup-seeval.sh`
   - `pg_dump`로 DB를 백업하고, 업로드 저장소를 tar.gz로 백업합니다.
@@ -195,6 +245,8 @@
   - ADMIN 화면에서 제목/내용을 배너 입력 폼으로 작성하고 등록할 수 있습니다.
   - 공지는 Workspace Notification에서 배너로 표시됩니다.
   - 공지 수정, 회수, 재게시, 삭제 기능을 분리했습니다.
+  - 사용자가 Notification을 열면 공지가 읽음 처리되어 badge 표시에서 제외됩니다.
+  - 사용자는 공지를 본인 Notification에서 삭제할 수 있으며, 이 동작은 다른 사용자에게 영향을 주지 않습니다.
 
 - 프로젝트 데이터 연결
   - 임상데이터와 모델예측 결과는 고정 기준 컬럼이 아니라 양쪽 데이터의 공통 컬럼 값으로 연결합니다.
@@ -209,6 +261,8 @@
 - 평가 결과 취합
   - 수정 허용 column 저장과 결과 파일 저장을 별도 기능으로 분리했습니다.
   - 결과 파일 저장은 CSV/TSV/Excel 형식 선택 후 `저장하기` 버튼으로 실행합니다.
+  - Column 선택 영역의 `컬럼 설정` 배너에서 타입/범위/nullable/unit/description을 저장합니다.
+  - 저장된 metadata는 평가 입력 UI, 평가 저장 API, 업로드 validation에서 공통으로 사용합니다.
   - Annotation 위치 취합은 별도 컴포넌트에서 환자별 overlay 비교를 담당합니다.
 
 ## Maintenance Notes
@@ -223,10 +277,12 @@
 - 모델예측 테이블 관련 변경은 `components/project/tables/prediction-data-table.tsx`를 확인하세요.
 - 평가 취합 관련 변경은 `components/project-review-table.tsx`와 review route를 확인하세요.
   - 저장 형식 선택 UI는 `components/ui/select-native.tsx`를 확인하세요.
+- 컬럼 metadata validation 관련 변경은 `lib/project-column-metadata.ts`, `ProjectColumnMetadata` schema, prediction/data API를 함께 확인하세요.
 - 데이터 파싱/업로드 문제는 `lib/project-upload.ts`를 확인하세요.
 - 업로드 파일 경로/권한 제공 문제는 `lib/project-storage.ts`와 `app/api/project-files/[projectId]/[...filePath]/route.ts`를 확인하세요.
 - Workspace 공유/Notification 관련 변경은 `components/workspace-actions.tsx`, `app/workspace/page.tsx`, `app/admin/accounts/page.tsx`를 함께 확인하세요.
 - DB 구조 변경 시 `prisma/schema.prisma` 수정 후 migration을 만들고 `npx prisma migrate deploy`, `npm run db:generate`를 실행하세요.
+- validation 변경 시 `npm run test:validation`으로 column metadata 검증 테스트를 실행하세요.
 - 운영에서는 `npm run backup`을 cron에 등록해 DB와 업로드 파일을 함께 백업하세요.
 - 운영 배포/재시작은 `npm run build`, `npm run pm2:reload`, `pm2 save` 순서로 진행하세요.
 
