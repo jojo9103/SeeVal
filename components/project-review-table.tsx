@@ -3,6 +3,7 @@
 import { Fragment, useMemo, useState, useTransition } from "react";
 
 import { ProjectAnnotationReviewViewer } from "@/components/project-annotation-review-viewer";
+import { SelectNative } from "@/components/ui/select-native";
 
 type ReviewUser = {
   id: string;
@@ -46,6 +47,8 @@ type ReviewAnnotation =
       points: Array<{ x: number; y: number }>;
     };
 
+type ExportFormat = "csv" | "tsv" | "xlsx";
+
 function uniqueColumns(rows: ReviewRow[]) {
   const columns = new Set<string>();
 
@@ -62,14 +65,102 @@ function cellValue(value: string | undefined | null) {
   return value || "-";
 }
 
+function exportCellValue(value: string | undefined | null) {
+  return value ?? "";
+}
+
+function sanitizeFileName(value: string) {
+  return value
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function escapeDelimitedCell(value: string, delimiter: "," | "\t") {
+  const shouldQuote =
+    value.includes('"') ||
+    value.includes("\n") ||
+    value.includes("\r") ||
+    value.includes(delimiter);
+
+  if (!shouldQuote) {
+    return value;
+  }
+
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function toDelimitedText(rows: string[][], delimiter: "," | "\t") {
+  return rows
+    .map((row) => row.map((cell) => escapeDelimitedCell(cell, delimiter)).join(delimiter))
+    .join("\r\n");
+}
+
+function buildExportRows({
+  rows,
+  sharedUsers,
+  visibleColumns,
+}: {
+  rows: ReviewRow[];
+  sharedUsers: ReviewUser[];
+  visibleColumns: string[];
+}) {
+  const header = ["sample", "image_id"];
+
+  for (const column of visibleColumns) {
+    header.push(`${column} (original)`);
+    for (const user of sharedUsers) {
+      header.push(`${column} (${user.name})`);
+    }
+  }
+
+  const body = rows.map((row) => {
+    const exportRow = [
+      exportCellValue(row.registrationNumber),
+      exportCellValue(row.imageId),
+    ];
+
+    for (const column of visibleColumns) {
+      exportRow.push(exportCellValue(row.predictionData[column]));
+      for (const user of sharedUsers) {
+        const edit = row.predictionEdits.find(
+          (predictionEdit) => predictionEdit.userId === user.id
+        );
+
+        exportRow.push(exportCellValue(edit?.data[column]));
+      }
+    }
+
+    return exportRow;
+  });
+
+  return [header, ...body];
+}
+
 export function ProjectReviewTable({
   projectId,
+  projectName,
   rows,
   sharedUsers,
   editableColumns,
   updateEditableColumns,
 }: {
   projectId: string;
+  projectName: string;
   rows: ReviewRow[];
   sharedUsers: ReviewUser[];
   editableColumns: string[];
@@ -79,12 +170,17 @@ export function ProjectReviewTable({
   const [selectedColumns, setSelectedColumns] = useState<string[]>(
     editableColumns.filter((column) => columns.includes(column))
   );
+  const [exportFormat, setExportFormat] = useState<ExportFormat>("csv");
   const [saveMessage, setSaveMessage] = useState("");
   const [isPending, startTransition] = useTransition();
   const visibleColumns = selectedColumns.filter((column) =>
     columns.includes(column)
   );
   const dynamicColumnCount = visibleColumns.length * (sharedUsers.length + 1);
+  const canExport = rows.length > 0 && visibleColumns.length > 0;
+  const exportFileBaseName = `${
+    sanitizeFileName(projectName) || "seev-project"
+  }-review-results`;
 
   function toggleColumn(column: string) {
     setSaveMessage("");
@@ -122,15 +218,83 @@ export function ProjectReviewTable({
     });
   }
 
+  function exportDelimited(format: Extract<ExportFormat, "csv" | "tsv">) {
+    const delimiter = format === "csv" ? "," : "\t";
+    const content = toDelimitedText(
+      buildExportRows({ rows, sharedUsers, visibleColumns }),
+      delimiter
+    );
+    const mimeType =
+      format === "csv"
+        ? "text/csv;charset=utf-8"
+        : "text/tab-separated-values;charset=utf-8";
+
+    downloadBlob(
+      new Blob([`\uFEFF${content}`], { type: mimeType }),
+      `${exportFileBaseName}.${format}`
+    );
+  }
+
+  async function exportExcel() {
+    const XLSX = await import("xlsx");
+    const worksheet = XLSX.utils.aoa_to_sheet(
+      buildExportRows({ rows, sharedUsers, visibleColumns })
+    );
+    const workbook = XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(workbook, worksheet, "review_results");
+    XLSX.writeFile(workbook, `${exportFileBaseName}.xlsx`);
+  }
+
+  function saveExportFile() {
+    if (exportFormat === "xlsx") {
+      void exportExcel();
+      return;
+    }
+
+    exportDelimited(exportFormat);
+  }
+
   return (
     <>
     <section className="mt-8 rounded-2xl border border-white/12 bg-white/[0.06] p-5">
       <div className="flex flex-col gap-4">
-        <div>
-          <h2 className="text-lg font-semibold">평가 결과 취합</h2>
-          <p className="mt-2 text-sm text-white/54">
-            선택한 모델예측 컬럼들을 공유받은 사용자별 편집값으로 비교합니다.
-          </p>
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">평가 결과 취합</h2>
+            <p className="mt-2 text-sm text-white/54">
+              선택한 모델예측 컬럼들을 공유받은 사용자별 편집값으로 비교합니다.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <SelectNative
+              value={exportFormat}
+              onChange={(event) =>
+                setExportFormat(event.currentTarget.value as ExportFormat)
+              }
+              disabled={!canExport}
+              aria-label="평가 결과 저장 형식"
+              className="w-32 text-xs"
+            >
+              <option className="bg-[#202020] text-white" value="csv">
+                CSV
+              </option>
+              <option className="bg-[#202020] text-white" value="tsv">
+                TSV
+              </option>
+              <option className="bg-[#202020] text-white" value="xlsx">
+                Excel
+              </option>
+            </SelectNative>
+            <button
+              type="button"
+              onClick={saveExportFile}
+              disabled={!canExport}
+              className="rounded-md border border-teal-200/25 bg-teal-300/12 px-3 py-2 text-xs font-medium text-teal-50 transition hover:bg-teal-300/22 disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              저장하기
+            </button>
+          </div>
         </div>
         <form
           onSubmit={saveEditableColumns}

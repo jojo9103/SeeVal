@@ -207,6 +207,7 @@ export default async function ProjectReviewPage({
 
         <ProjectReviewTable
           projectId={project.id}
+          projectName={project.name}
           rows={rows}
           sharedUsers={sharedUsers}
           editableColumns={editablePredictionColumns}

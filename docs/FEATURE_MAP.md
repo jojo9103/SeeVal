@@ -21,6 +21,7 @@
   - 평가 취합 화면입니다.
   - 프로젝트 소유자 또는 ADMIN만 접근합니다.
   - 공유받은 사용자들의 수정 결과를 케이스별 표로 보여줍니다.
+  - `ProjectReviewTable`에 프로젝트명, 공유 사용자, 케이스별 원본/수정값, 수정 허용 column 저장 action을 넘깁니다.
 
 ## Project Viewer Components
 
@@ -87,6 +88,14 @@
   - 여러 column을 체크박스로 선택할 수 있습니다.
   - 각 column은 원본값과 `column name (공유받은사람이름)` 형태의 사용자별 편집값으로 펼쳐집니다.
   - 선택한 column을 저장하면 프로젝트 평가 화면에서 해당 column만 모델예측 수정 가능 항목이 됩니다.
+  - `CSV`, `TSV`, `Excel` 중 저장 형식을 선택한 뒤 `저장하기`를 누르면 현재 취합 결과를 파일로 내려받습니다.
+  - 내보내기 데이터는 현재 선택된 column 기준이며, `sample`, `image_id`, 원본값, 공유 사용자별 수정값 순서로 구성됩니다.
+  - CSV/TSV는 브라우저 Blob 다운로드를 사용하고, Excel은 `xlsx`의 `aoa_to_sheet`/`writeFile`을 사용합니다.
+
+- `components/ui/select-native.tsx`
+  - 기본 HTML `select`를 SeeV 어두운 UI에 맞춰 감싼 공통 컴포넌트입니다.
+  - `lucide-react`의 `ChevronDown` 아이콘을 사용합니다.
+  - 평가 취합 파일 저장 형식 선택 UI에서 사용합니다.
 
 - `components/project-annotation-review-viewer.tsx`
   - 평가 취합 페이지에서 환자별 annotation 요약과 이미지 overlay 취합을 담당합니다.
@@ -165,6 +174,43 @@
   - `pg_dump`로 DB를 백업하고, 업로드 저장소를 tar.gz로 백업합니다.
   - `SEEV_BACKUP_DIR`, `SEEV_UPLOAD_DIR`, `SEEV_BACKUP_RETENTION_DAYS` 환경변수로 운영 경로와 보관 기간을 조정합니다.
 
+- `ecosystem.config.cjs`
+  - PM2 운영 실행 설정입니다.
+  - `seev` 프로세스를 `npm run start`, `NODE_ENV=production`, `PORT=3000`으로 고정합니다.
+  - 외부 서비스에는 `npm run dev`가 아니라 이 설정을 사용해야 합니다.
+
+## Recent Feature Breakdown
+
+- 운영 안정화
+  - PM2 dev 서버 실행 문제를 막기 위해 `ecosystem.config.cjs`와 `pm2:start`, `pm2:reload` 스크립트를 추가했습니다.
+  - HTTP 내부 서비스에서는 로그인 쿠키가 저장되도록 `SESSION_COOKIE_SECURE=false`를 지원합니다.
+  - 운영 반영 순서는 `npm run build` 후 `npm run pm2:reload`입니다.
+
+- 데이터 보존과 복구 대비
+  - 프로젝트 삭제는 `Project.deletedAt` 기반 soft delete입니다.
+  - 공지 삭제도 `AdminNotice.deletedAt` 기반 soft delete입니다.
+  - DB와 업로드 파일을 함께 백업하는 `npm run backup`을 추가했습니다.
+
+- ADMIN 공지사항
+  - ADMIN 화면에서 제목/내용을 배너 입력 폼으로 작성하고 등록할 수 있습니다.
+  - 공지는 Workspace Notification에서 배너로 표시됩니다.
+  - 공지 수정, 회수, 재게시, 삭제 기능을 분리했습니다.
+
+- 프로젝트 데이터 연결
+  - 임상데이터와 모델예측 결과는 고정 기준 컬럼이 아니라 양쪽 데이터의 공통 컬럼 값으로 연결합니다.
+  - `image_folder`와 `image_id`는 업로드 이미지 파일 매칭에 사용합니다.
+  - 데이터 추가/변경 API는 DB 교체와 케이스 재생성을 트랜잭션으로 처리합니다.
+
+- Image Viewer
+  - annotation UI를 toolbar, minimap, shape, list, hook으로 분리했습니다.
+  - 이미지가 있는 케이스를 이전/다음으로 이동하는 버튼을 추가했습니다.
+  - rectangle/polygon annotation을 사용자별 저장하고 평가 취합에서 overlay로 비교합니다.
+
+- 평가 결과 취합
+  - 수정 허용 column 저장과 결과 파일 저장을 별도 기능으로 분리했습니다.
+  - 결과 파일 저장은 CSV/TSV/Excel 형식 선택 후 `저장하기` 버튼으로 실행합니다.
+  - Annotation 위치 취합은 별도 컴포넌트에서 환자별 overlay 비교를 담당합니다.
+
 ## Maintenance Notes
 
 - Image Viewer 관련 변경은 `components/project/image-viewer/` 아래 기능별 파일을 확인하세요.
@@ -176,11 +222,13 @@
   - 저장/불러오기는 `use-image-annotations.ts`
 - 모델예측 테이블 관련 변경은 `components/project/tables/prediction-data-table.tsx`를 확인하세요.
 - 평가 취합 관련 변경은 `components/project-review-table.tsx`와 review route를 확인하세요.
+  - 저장 형식 선택 UI는 `components/ui/select-native.tsx`를 확인하세요.
 - 데이터 파싱/업로드 문제는 `lib/project-upload.ts`를 확인하세요.
 - 업로드 파일 경로/권한 제공 문제는 `lib/project-storage.ts`와 `app/api/project-files/[projectId]/[...filePath]/route.ts`를 확인하세요.
 - Workspace 공유/Notification 관련 변경은 `components/workspace-actions.tsx`, `app/workspace/page.tsx`, `app/admin/accounts/page.tsx`를 함께 확인하세요.
 - DB 구조 변경 시 `prisma/schema.prisma` 수정 후 migration을 만들고 `npx prisma migrate deploy`, `npm run db:generate`를 실행하세요.
 - 운영에서는 `npm run backup`을 cron에 등록해 DB와 업로드 파일을 함께 백업하세요.
+- 운영 배포/재시작은 `npm run build`, `npm run pm2:reload`, `pm2 save` 순서로 진행하세요.
 
 ## Refactor And Context Notes
 
@@ -198,3 +246,4 @@
 - `Project.deletedAt` 기반 soft delete를 사용합니다. 복구는 DB에서 해당 project의 `deletedAt`을 `NULL`로 되돌리면 됩니다.
 - 운영 업로드 저장소는 `SEEV_UPLOAD_DIR`로 코드 폴더 밖 경로를 지정하는 것을 권장합니다.
 - `npm run backup`은 DB와 업로드 파일을 함께 백업합니다.
+- PM2는 `ecosystem.config.cjs` 기준으로 실행합니다. 공용 접속 서비스에는 `npm run dev`를 사용하지 마세요.
