@@ -13,6 +13,7 @@ import {
 
 const imageIdColumn = "image_id";
 const imageFolderColumn = "image_folder";
+const editColumnPrefix = "Edit ";
 const fallbackRegistrationColumns = ["등록번호", "registrationNumber", "id"];
 const imageExtensions = new Set([
   ".avif",
@@ -321,6 +322,24 @@ function rowColumns(rows: DataRow[]) {
   return columns;
 }
 
+function rowWithVirtualEditColumns(
+  row: DataRow,
+  metadata: Array<{ name: string }>
+) {
+  const nextRow = { ...row };
+
+  for (const column of metadata) {
+    if (!column.name.startsWith(editColumnPrefix) || nextRow[column.name] !== undefined) {
+      continue;
+    }
+
+    const sourceColumn = column.name.slice(editColumnPrefix.length);
+    nextRow[column.name] = row[sourceColumn] ?? "";
+  }
+
+  return nextRow;
+}
+
 function sharedColumns(leftRows: DataRow[], rightRows: DataRow[]) {
   const leftColumns = rowColumns(leftRows);
   const rightColumns = rowColumns(rightRows);
@@ -514,18 +533,21 @@ export async function rebuildProjectCases(
   const columnMetadata = await db.projectColumnMetadata.findMany({
     where: { projectId },
   });
+  const normalizedColumnMetadata = columnMetadata.map((column) => ({
+    name: column.name,
+    dataType: column.dataType,
+    minValue: column.minValue,
+    maxValue: column.maxValue,
+    nullable: column.nullable,
+    unit: column.unit,
+    description: column.description,
+  }));
 
   assertRowsWithColumnMetadata({
-    rows: predictionRows,
-    metadata: columnMetadata.map((column) => ({
-      name: column.name,
-      dataType: column.dataType,
-      minValue: column.minValue,
-      maxValue: column.maxValue,
-      nullable: column.nullable,
-      unit: column.unit,
-      description: column.description,
-    })),
+    rows: predictionRows.map((row) =>
+      rowWithVirtualEditColumns(row, normalizedColumnMetadata)
+    ),
+    metadata: normalizedColumnMetadata,
     startRow: 2,
   });
 

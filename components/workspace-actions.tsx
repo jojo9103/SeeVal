@@ -6,6 +6,7 @@ export type {
   OutgoingShareStatus,
   Project,
   ProjectFile,
+  ShareCancelAction,
   ShareRequest,
   ShareResponseAction,
   ShareUser,

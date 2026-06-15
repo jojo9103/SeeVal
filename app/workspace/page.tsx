@@ -205,7 +205,7 @@ async function requestProjectShare(
   const project = await prisma.project.findFirst({
     where: {
       id: projectId,
-      ownerId: currentUser.id,
+      ...(currentUser.role === "ADMIN" ? {} : { ownerId: currentUser.id }),
       deletedAt: null,
     },
   });
@@ -232,8 +232,8 @@ async function requestProjectShare(
     };
   }
 
-  const shareStatus = currentUser.role === "ADMIN" ? "ACCEPTED" : "PENDING";
-  const respondedAt = currentUser.role === "ADMIN" ? new Date() : null;
+  const shareStatus = "PENDING";
+  const respondedAt = null;
 
   const validTargetUsers = targetUsers.filter(
     (targetUser) => targetUser.id !== currentUser.id
@@ -246,8 +246,34 @@ async function requestProjectShare(
     };
   }
 
+  const existingShares = await prisma.projectShare.findMany({
+    where: {
+      projectId,
+      sharedWithId: { in: validTargetUsers.map((targetUser) => targetUser.id) },
+    },
+    select: {
+      sharedWithId: true,
+      status: true,
+    },
+  });
+  const existingShareByUserId = new Map(
+    existingShares.map((share) => [share.sharedWithId, share.status])
+  );
+  const shareableTargetUsers = validTargetUsers.filter((targetUser) => {
+    const existingStatus = existingShareByUserId.get(targetUser.id);
+
+    return existingStatus !== "ACCEPTED" && existingStatus !== "PENDING";
+  });
+
+  if (shareableTargetUsers.length === 0) {
+    return {
+      type: "error",
+      message: "선택한 USER는 이미 공유되었거나 공유 요청 대기 중입니다.",
+    };
+  }
+
   await prisma.$transaction(
-    validTargetUsers.map((targetUser) =>
+    shareableTargetUsers.map((targetUser) =>
       prisma.projectShare.upsert({
         where: {
           projectId_sharedWithId: {
@@ -276,11 +302,45 @@ async function requestProjectShare(
 
   return {
     type: "success",
-    message:
-      currentUser.role === "ADMIN"
-        ? "선택한 USER에게 프로젝트 접근 권한을 부여했습니다."
-        : "공유 요청을 보냈습니다.",
+    message: `${shareableTargetUsers.length}명에게 공유 요청을 보냈습니다.`,
   };
+}
+
+async function cancelProjectShare(formData: FormData) {
+  "use server";
+
+  const currentUser = await requireUser();
+  const shareId = String(formData.get("shareId") ?? "");
+
+  if (!shareId) {
+    return;
+  }
+
+  const share = await prisma.projectShare.findFirst({
+    where: {
+      id: shareId,
+      project: {
+        deletedAt: null,
+        ...(currentUser.role === "ADMIN" ? {} : { ownerId: currentUser.id }),
+      },
+    },
+    select: {
+      id: true,
+      projectId: true,
+    },
+  });
+
+  if (!share) {
+    return;
+  }
+
+  await prisma.projectShare.delete({
+    where: { id: share.id },
+  });
+
+  revalidatePath("/workspace");
+  revalidatePath(`/workspace/projects/${share.projectId}`);
+  revalidatePath(`/workspace/projects/${share.projectId}/review`);
 }
 
 async function acceptShare(formData: FormData) {
@@ -445,8 +505,8 @@ export default async function WorkspacePage() {
       prisma.projectShare.findMany({
         where: {
           project: {
-            ownerId: user.id,
             deletedAt: null,
+            ...(user.role === "ADMIN" ? {} : { ownerId: user.id }),
           },
         },
         include: {
@@ -458,6 +518,7 @@ export default async function WorkspacePage() {
           },
           sharedWith: {
             select: {
+              id: true,
               name: true,
               email: true,
               organization: true,
@@ -524,6 +585,7 @@ export default async function WorkspacePage() {
       name: share.project.name,
     },
     sharedWith: {
+      id: share.sharedWith.id,
       name: share.sharedWith.name,
       email: share.sharedWith.email,
       organization: share.sharedWith.organization,
@@ -542,6 +604,7 @@ export default async function WorkspacePage() {
     name: project.name,
     ownerName: project.owner.name,
     ownedByMe: project.ownerId === user.id,
+    canManageShares: project.ownerId === user.id || user.role === "ADMIN",
     canReview: project.ownerId === user.id || user.role === "ADMIN",
     canDelete: project.ownerId === user.id || user.role === "ADMIN",
     createdAt: project.createdAt.toISOString(),
@@ -628,8 +691,8 @@ export default async function WorkspacePage() {
         <ProjectWorkspacePanel
           projects={projects}
           shareUsers={shareUsers}
-          currentUserRole={user.role}
           requestProjectShare={requestProjectShare}
+          cancelProjectShare={cancelProjectShare}
           deleteProject={deleteProject}
         />
 

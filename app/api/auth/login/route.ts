@@ -8,10 +8,15 @@ export async function POST(request: Request) {
   const body = (await request.json()) as {
     email?: string;
     password?: string;
+    redirectTo?: string;
   };
 
   const email = body.email?.trim().toLowerCase() ?? "";
   const password = body.password ?? "";
+  const redirectTo =
+    body.redirectTo?.startsWith("/") && !body.redirectTo.startsWith("//")
+      ? body.redirectTo
+      : undefined;
 
   if (!email || !password) {
     return NextResponse.json(
@@ -51,6 +56,6 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     message: "로그인되었습니다.",
-    redirectTo: user.role === "ADMIN" ? "/admin/accounts" : "/workspace",
+    redirectTo: redirectTo ?? (user.role === "ADMIN" ? "/admin/accounts" : "/workspace"),
   });
 }

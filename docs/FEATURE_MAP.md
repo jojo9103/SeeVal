@@ -4,6 +4,12 @@
 
 ## Core Routes
 
+- `proxy.ts`
+  - 로그인하지 않은 사용자가 `/workspace`, `/admin`, `/api/projects`, `/api/project-files`에 직접 접근하면 차단합니다.
+  - 페이지 요청은 `/auth?next=...`로 보내 로그인 후 원래 접근하려던 화면으로 돌아갈 수 있게 합니다.
+  - 보호 API 요청은 `401`과 `로그인이 필요합니다.` JSON 응답을 반환합니다.
+  - proxy는 세션 쿠키 존재 여부를 빠르게 확인하고, 실제 서명/만료/유저 상태 검증은 각 route의 `requireUser`/`requireAdmin`이 담당합니다.
+
 - `app/workspace/page.tsx`
   - 로그인한 사용자의 workspace 첫 화면입니다.
   - 프로젝트 생성, 프로젝트 목록, Notification, 평가 취합 진입 버튼을 다룹니다.
@@ -14,16 +20,20 @@
 - `app/workspace/projects/[projectId]/page.tsx`
   - 단일 프로젝트 평가 화면입니다.
   - 프로젝트 접근 권한을 확인하고, 케이스/이미지/임상데이터/모델예측/유저별 편집값을 불러옵니다.
+  - 프로젝트 소유자, ADMIN, 공유 허가된 USER가 접근할 수 있으며, 공유받은 USER도 선택된 `Edit {column}`을 본인 평가값으로 수정/저장할 수 있습니다.
   - `ProjectCaseViewer`에 화면용 데이터를 넘깁니다.
   - 데이터 추가/변경 후 `ProjectCaseViewer` key가 바뀌어 새 케이스 데이터가 즉시 반영됩니다.
 
 - `app/workspace/projects/[projectId]/review/page.tsx`
   - 평가 취합 화면입니다.
   - 프로젝트 소유자 또는 ADMIN만 접근합니다.
-  - 공유받은 사용자들의 수정 결과를 케이스별 표로 보여줍니다.
-  - `ProjectReviewTable`에 프로젝트명, 공유 사용자, 케이스별 원본/수정값, 수정 허용 column 저장 action을 넘깁니다.
-  - `updateEditablePredictionColumns` server action에서 수정 허용 column과 `ProjectColumnMetadata`를 함께 저장합니다.
-  - 컬럼 metadata 저장 전 기존 모델예측 데이터가 타입/min/max/nullable 규칙을 통과하는지 검증합니다.
+  - ADMIN, 프로젝트 소유자, 공유받은 사용자들의 수정 결과를 케이스별 표로 보여줍니다.
+  - `ProjectReviewTable`에 프로젝트명, 취합 대상 사용자, 케이스별 원본/수정값, 수정 허용 column 저장 action을 넘깁니다.
+  - `updateEditablePredictionColumns` server action에서 선택된 raw column을 `Edit {column}` 수정 허용 column으로 변환하고 `ProjectColumnMetadata`를 함께 저장합니다.
+  - `createProjectReviewCheckpoint` server action은 현재 수정 허용 column, column metadata, 사용자별 Edit 데이터를 snapshot으로 저장합니다.
+  - `restoreProjectReviewCheckpoint` server action은 선택한 checkpoint의 snapshot으로 column 설정과 Edit 데이터를 되돌립니다.
+  - `deleteProjectReviewCheckpoint` server action은 선택한 checkpoint row만 삭제하며 현재 프로젝트 설정과 Edit 데이터는 변경하지 않습니다.
+  - 컬럼 metadata 저장 전 기존 모델예측 데이터의 source raw 값과 기존 사용자 edit 값이 타입/min/max/nullable 규칙을 통과하는지 검증합니다.
 
 ## Project Viewer Components
 
@@ -83,7 +93,9 @@
 - `components/project/tables/prediction-data-table.tsx`
   - 모델예측 결과 테이블입니다.
   - `image_id` 클릭 시 Image Viewer의 선택 case를 바꿉니다.
-  - 프로젝트별 수정 허용 column에 포함된 값을 수정 가능하며, column metadata에 따라 int/float/string/category/bool 입력 UI를 사용합니다.
+  - 선택된 raw column 옆에 `Edit {column}` 수정용 column을 표시합니다.
+  - 프로젝트별 수정 허용 column에 포함된 `Edit {column}` 값을 수정 가능하며, column metadata에 따라 int/float/string/category/bool 입력 UI를 사용합니다.
+  - 공유받은 USER가 수정한 `Edit {column}` 값은 해당 USER의 `ProjectCasePredictionEdit`로 저장되어 평가 취합에서 사용자별로 비교됩니다.
   - int는 정수 입력, float은 소수 입력을 허용하고 min/max 속성을 반영합니다.
   - 저장 버튼으로 사용자별 편집값을 저장하며, backend validation 실패 메시지를 표시합니다.
   - 정렬, 페이지네이션, 30/60/90 rows 표시 옵션을 지원합니다.
@@ -91,21 +103,30 @@
 
 - `components/project/tables/selected-case-data-panel.tsx`
   - 선택된 샘플의 임상데이터와 모델예측 결과를 side panel로 보여줍니다.
-  - 수정 허용 column은 column metadata에 따라 int/float/string/category/bool 입력 UI를 사용합니다.
+  - 수정 허용 `Edit {column}`은 column metadata에 따라 int/float/string/category/bool 입력 UI를 사용합니다.
+  - 현재 로그인한 사용자 이름을 안내해, 공유받은 USER도 본인 평가값을 저장한다는 점을 명확히 표시합니다.
   - 저장 실패 시 backend validation 메시지를 표시합니다.
 
 - `components/project-review-table.tsx`
   - 평가 취합 페이지의 테이블입니다.
-  - 여러 column을 체크박스로 선택할 수 있습니다.
-  - 각 column은 원본값과 `column name (공유받은사람이름)` 형태의 사용자별 편집값으로 펼쳐집니다.
-  - 선택한 column을 저장하면 프로젝트 평가 화면에서 해당 column만 모델예측 수정 가능 항목이 됩니다.
-  - `컬럼 설정` 버튼을 누르면 배너/모달 형식으로 선택 column의 metadata를 수정합니다.
+  - 상단 `ReviewSectionMenu`로 `평가 결과 취합`과 `Annotation 위치 취합`을 전환합니다.
+  - `ReviewCheckpointPanel`을 통해 현재 취합 상태 checkpoint 생성과 checkpoint 복구 action을 연결합니다.
+  - `Column 찾기` 검색 팝오버에서 여러 column을 multi select할 수 있습니다.
+  - 선택한 raw column을 저장하면 프로젝트 평가 화면에서 `Edit {column}` 수정 가능 항목이 됩니다.
+  - 취합 표는 `{column}` raw 값은 한 번만 보여주고, `Edit {column} ({User name})` 형태로 ADMIN/프로젝트 소유자/공유받은 사용자별 수정값을 펼쳐 보여줍니다.
+  - `컬럼 설정` 버튼을 누르면 배너/모달 형식으로 선택된 raw column의 metadata를 수정합니다.
+  - 설정 화면에는 raw `{column}` 이름만 보여주지만, 저장되는 metadata 이름과 실제 검증/수정 적용 대상은 `Edit {column}`입니다.
   - metadata 필드: `dataType`, `minValue`, `maxValue`, `nullable`, `unit`, `description`.
   - `dataType`이 `int` 또는 `float`일 때만 min/max 입력칸을 보여줍니다.
   - int는 `step=1`, float은 `step=any` 입력을 사용합니다.
   - min value가 max value보다 크면 저장하지 않습니다.
+  - 취합 테이블은 화면 표시 rows를 30/50/100개 단위로 나누고 이전/다음 페이지 이동을 지원합니다.
+  - 현재 페이지의 rows는 내부 세로 스크롤로 자르지 않고 전체 높이로 펼쳐 보여주며, column이 많을 때만 가로 스크롤을 사용합니다.
+  - 취합 테이블 header의 `샘플`, `image_id`, raw column, 사용자별 `Edit {column}`을 클릭해 오름차순/내림차순 정렬할 수 있습니다.
+  - 긴 `Edit {column} ({User name})` header는 고정 폭 안에서 잘리지 않도록 여러 줄로 줄바꿈하고, raw/Edit 값 cell도 고정 최대 폭 안에서 줄바꿈합니다.
   - `CSV`, `TSV`, `Excel` 중 저장 형식을 선택한 뒤 `저장하기`를 누르면 현재 취합 결과를 파일로 내려받습니다.
   - 내보내기 데이터는 현재 선택된 column 기준이며, `sample`, `image_id`, 원본값, 공유 사용자별 수정값 순서로 구성됩니다.
+  - 페이지네이션은 화면 표시 범위만 바꾸며, 파일 저장은 선택된 column의 전체 취합 rows를 대상으로 합니다.
   - CSV/TSV는 브라우저 Blob 다운로드를 사용하고, Excel은 `xlsx`의 `aoa_to_sheet`/`writeFile`을 사용합니다.
 
 - `lib/project-column-metadata.ts`
@@ -123,6 +144,17 @@
   - `lucide-react`의 `ChevronDown` 아이콘을 사용합니다.
   - 평가 취합 파일 저장 형식 선택 UI에서 사용합니다.
 
+- `components/project-review/section-menu.tsx`
+  - 평가 취합 페이지의 상단 메뉴를 담당합니다.
+  - 메뉴 항목은 `평가 결과 취합`, `Annotation 위치 취합`으로 나뉘며, 선택된 항목만 본문에 렌더링합니다.
+  - 메뉴 타입 `ReviewSection`을 이 파일에서 관리해 섹션 추가 시 변경 지점을 줄입니다.
+
+- `components/project-review/checkpoints.tsx`
+  - 평가 결과 취합의 checkpoint UI를 담당합니다.
+  - `Checkpoint 만들기`는 현재 수정 허용 column, metadata, 사용자별 Edit 데이터를 저장합니다.
+  - `이 시점으로 복구`는 저장된 snapshot으로 column 설정과 Edit 데이터를 되돌립니다.
+  - `삭제`는 checkpoint snapshot만 제거하고 현재 프로젝트 데이터에는 영향을 주지 않습니다.
+
 - `components/project-annotation-review-viewer.tsx`
   - 평가 취합 페이지에서 환자별 annotation 요약과 이미지 overlay 취합을 담당합니다.
   - 환자별로 annotation 개수와 사용자별 개수를 짧게 보여주고, 선택한 환자의 이미지 위에 여러 사용자의 rectangle/polygon을 색상별로 함께 표시합니다.
@@ -131,8 +163,16 @@
 - `app/api/projects/[projectId]/cases/[caseId]/prediction/route.ts`
   - 사용자별 모델예측 수정값 저장 API입니다.
   - DB의 `ProjectCasePredictionEdit` 모델을 사용합니다.
-  - 저장 전에 수정 허용 column의 `ProjectColumnMetadata` 규칙으로 입력값을 검증합니다.
+  - 프로젝트 소유자, 공유 허가된 USER, ADMIN이 접근할 수 있습니다.
+  - 저장 전에 수정 허용 `Edit {column}`의 `ProjectColumnMetadata` 규칙으로 입력값을 검증합니다.
+  - 저장 시 현재 수정 허용 column 값만 갱신하고, 현재 선택 해제되어 화면에 숨겨진 과거 `Edit {column}` 값은 보존합니다.
+  - 저장 성공 후 프로젝트 상세와 평가 취합 경로를 revalidate해 공유받은 USER의 수정값이 취합 화면에 반영되도록 합니다.
   - 실패 시 `{ row, column, value, message }` 형태의 오류 목록을 반환합니다.
+
+- `lib/auth.ts`
+  - `seev_session` 쿠키 생성/검증/삭제와 `requireUser`, `requireAdmin` 인증 guard를 담당합니다.
+  - 로그아웃 시 세션 쿠키는 생성 때와 같은 `path`, `sameSite`, `secure`, `httpOnly` 옵션에 `maxAge=0`, 과거 `expires`를 함께 지정해 삭제합니다.
+  - malformed session token은 JSON parse 실패 시 로그인되지 않은 상태로 처리합니다.
 
 ## Upload And Project Data
 
@@ -145,6 +185,7 @@
   - `image_folder`와 `image_id`를 기반으로 업로드 이미지와 prediction row를 연결합니다. `image_folder`는 이미지 폴더/파일 매칭에 쓰입니다.
   - 데이터 교체 업로드는 DB 삭제/생성/케이스 재생성을 트랜잭션으로 묶어 중간 실패에 더 강하게 처리합니다.
   - 프로젝트에 `ProjectColumnMetadata`가 설정되어 있으면 모델예측 업로드 rows를 먼저 validation하고, 오류가 있으면 저장하지 않습니다.
+  - `Edit {column}` metadata는 업로드 raw row의 source column 값을 기준으로 validation합니다.
 
 - `lib/project-storage.ts`
   - 업로드 파일 저장 경로와 `/api/project-files/...` 파일 URL 생성을 담당합니다.
@@ -172,8 +213,15 @@
   - `project-workspace-panel.tsx`: 프로젝트 목록, 생성/공유/공유상태 모달을 조립하는 상위 컴포넌트입니다.
   - `project-card.tsx`: 프로젝트 카드와 `들어가기`, `평가 취합`, `공유요청상황`, `공유하기`, `삭제` 버튼을 담당합니다.
   - `create-project-modal.tsx`: 프로젝트 생성과 업로드 진행률 표시 UI를 담당합니다.
-  - `share-project-modal.tsx`: 공유 대상 검색 및 공유 요청/바로 공유 UI를 담당합니다.
+  - `share-project-modal.tsx`: 공유 대상 검색 및 공유 요청 UI를 담당합니다.
+    - ADMIN과 프로젝트 소유자 모두 바로 권한을 주지 않고 `PENDING` 공유 요청을 보냅니다.
+    - 받은 USER가 Notification에서 수락하면 `ACCEPTED`가 되어 프로젝트 접근 권한이 부여됩니다.
+    - 현재 프로젝트에 이미 공유된 USER는 `이미 공유됨`으로 표시하고 선택할 수 없게 합니다.
+    - 이미 공유 요청이 대기 중인 USER도 상태 badge를 표시하고 중복 요청을 막습니다.
   - `share-status-list.tsx`: 프로젝트별 공유 요청 상태와 공유 허가된 사용자 목록을 보여줍니다.
+    - ADMIN 또는 프로젝트 소유자는 공유 요청/허가 목록에서 `공유 취소`를 눌러 `ProjectShare` 권한 row를 삭제할 수 있습니다.
+    - 공유 취소 버튼을 누르면 열린 공유 요청 상황 모달에서 해당 row를 즉시 숨기고, server action 완료 후 workspace를 새로고침합니다.
+    - 공유 취소 후 같은 USER에게 다시 공유하면 기존 상태를 재사용하지 않고 새 공유 요청 row가 생성됩니다.
   - `notification-center.tsx`: 받은 공유 요청 수락/거절, ADMIN 공지사항 확인/삭제, Notification badge 표시를 담당합니다.
     - 공유 요청은 `PENDING` 상태일 때만 표시되고 수락/거절하면 사라집니다.
     - ADMIN 공지는 알림창을 열면 사용자별 `readAt`이 기록되어 badge count에서 빠집니다.
@@ -188,6 +236,7 @@
 
 - `app/workspace/page.tsx`
   - Workspace 데이터 조회와 workspace server action을 담당합니다.
+  - `cancelProjectShare`: ADMIN 또는 프로젝트 소유자가 공유 요청/허가를 취소하고 실제 접근 권한을 말소합니다.
   - `markAdminNoticesRead`: Notification을 연 사용자의 ADMIN 공지를 읽음 처리합니다.
   - `dismissAdminNotice`: 특정 ADMIN 공지를 사용자별로 숨김 처리합니다.
   - ADMIN 공지 조회 시 `AdminNoticeReceipt.dismissedAt`이 있는 공지는 해당 사용자에게 표시하지 않습니다.
@@ -205,9 +254,14 @@
     - `ProjectShare`
     - `ProjectCaseAnnotation`
     - `ProjectCasePredictionEdit`
+    - `ProjectReviewCheckpoint`
     - `AdminNotice`
     - `ProjectColumnMetadata`
   - annotation과 prediction edit는 모두 `caseId + userId` 기준으로 사용자별 저장됩니다.
+  - `ProjectReviewCheckpoint.snapshot`은 복구용 JSON snapshot입니다.
+    - `editablePredictionColumns`: 프로젝트 수정 허용 column 목록입니다.
+    - `columnMetadata`: 선택 column의 타입/범위/nullable/unit/description 설정입니다.
+    - `predictionEdits`: `caseId + userId` 기준 사용자별 Edit 데이터입니다.
   - `Project.deletedAt`은 soft delete에 사용됩니다. 삭제된 프로젝트는 일반 목록/상세/API 접근에서 제외됩니다.
   - `AdminNotice`는 ADMIN 공지사항을 저장하고 작성자 USER와 연결됩니다.
   - `AdminNotice.recalledAt`은 공지 회수에 사용되며, `deletedAt`은 공지 삭제에 사용됩니다.
@@ -248,6 +302,19 @@
   - 사용자가 Notification을 열면 공지가 읽음 처리되어 badge 표시에서 제외됩니다.
   - 사용자는 공지를 본인 Notification에서 삭제할 수 있으며, 이 동작은 다른 사용자에게 영향을 주지 않습니다.
 
+- 공유 권한 취소
+  - ADMIN과 프로젝트 소유자는 공유 요청 상황 모달에서 대기/거절/허가 상태의 공유를 취소할 수 있습니다.
+  - 취소 시 `ProjectShare` row를 삭제해 프로젝트 접근 권한을 즉시 말소합니다.
+  - UI에서는 취소 submit 즉시 해당 공유 row를 숨겨 사용자가 취소 결과를 바로 확인할 수 있습니다.
+  - 삭제된 공유 row는 다음 공유 시 재사용되지 않으므로, USER에게 새 공유 요청이 다시 생성됩니다.
+  - 공유 모달에서 이미 공유되었거나 공유 요청 대기 중인 USER는 상태 badge로 표시하고 중복 선택을 막습니다.
+
+- 평가 취합 Column 선택 UX
+  - 평가 취합의 column 선택을 체크박스 나열 방식에서 검색 가능한 multi select 방식으로 변경했습니다.
+  - 선택된 column은 chip으로 표시되고 chip의 X 버튼으로 개별 해제할 수 있습니다.
+  - `전체 선택`, `선택 해제`, `컬럼 설정`, `수정 컬럼 저장` 흐름은 기존 저장 동작과 함께 유지됩니다.
+  - 저장 시 선택된 raw column은 프로젝트 평가 화면의 `Edit {column}` 수정용 column으로 추가됩니다.
+
 - 프로젝트 데이터 연결
   - 임상데이터와 모델예측 결과는 고정 기준 컬럼이 아니라 양쪽 데이터의 공통 컬럼 값으로 연결합니다.
   - `image_folder`와 `image_id`는 업로드 이미지 파일 매칭에 사용합니다.
@@ -259,10 +326,23 @@
   - rectangle/polygon annotation을 사용자별 저장하고 평가 취합에서 overlay로 비교합니다.
 
 - 평가 결과 취합
+  - 상단 메뉴에서 `평가 결과 취합`과 `Annotation 위치 취합`을 별도 화면처럼 전환할 수 있습니다.
+  - 메뉴 UI는 `components/project-review/section-menu.tsx`로 분리해 취합 본문과 navigation 책임을 나눴습니다.
+  - Checkpoint 기능을 추가해 column 선택/해제 또는 Edit 저장 실수 전에 현재 상태를 복구 지점으로 저장할 수 있습니다.
+  - Checkpoint는 `ProjectReviewCheckpoint`에 snapshot JSON으로 저장하며, 복구 시 수정 허용 column, metadata, 사용자별 Edit 데이터를 해당 시점으로 되돌립니다.
+  - Checkpoint 삭제는 snapshot row만 삭제하고 현재 프로젝트 설정/입력값은 유지합니다.
+  - Checkpoint UI는 `components/project-review/checkpoints.tsx`로 분리해 취합 테이블 렌더링과 checkpoint 생성/복구/삭제 UI 책임을 나눴습니다.
   - 수정 허용 column 저장과 결과 파일 저장을 별도 기능으로 분리했습니다.
   - 결과 파일 저장은 CSV/TSV/Excel 형식 선택 후 `저장하기` 버튼으로 실행합니다.
   - Column 선택 영역의 `컬럼 설정` 배너에서 타입/범위/nullable/unit/description을 저장합니다.
+  - metadata 설정 UI에는 선택된 raw column만 표시하고, 실제 저장/검증/수정 적용은 `Edit {column}`에 합니다.
   - 저장된 metadata는 평가 입력 UI, 평가 저장 API, 업로드 validation에서 공통으로 사용합니다.
+  - 모델예측 저장 API는 숨겨진 과거 `Edit {column}` 값을 보존하므로, column을 선택 해제했다가 다시 선택해도 기존 사용자별 수정값을 다시 취합할 수 있습니다.
+  - 취합 결과는 raw `{column}`과 사용자별 `Edit {column} ({User name})`으로 구성됩니다.
+  - 취합 테이블은 30/50/100 rows 표시 옵션과 이전/다음 페이지 이동을 지원합니다.
+  - 취합 테이블 내부 세로 높이 제한을 두지 않아 선택한 페이지 크기의 rows가 모두 보입니다.
+  - 취합 테이블 정렬은 현재 선택된 sort 기준으로 전체 rows를 먼저 정렬한 뒤 페이지네이션을 적용합니다.
+  - 취합 페이지네이션은 렌더링 성능과 화면 탐색용이며, CSV/TSV/Excel 저장은 전체 취합 rows를 유지합니다.
   - Annotation 위치 취합은 별도 컴포넌트에서 환자별 overlay 비교를 담당합니다.
 
 ## Maintenance Notes

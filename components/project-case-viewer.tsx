@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-import { uniqueColumns } from "@/components/project/data-utils";
+import { predictionColumnsWithEdits } from "@/components/project/data-utils";
 import { AnnotatableImageViewer } from "@/components/project/image-viewer/annotatable-image-viewer";
 import { PredictionDataTable } from "@/components/project/tables/prediction-data-table";
 import { SelectedCaseDataPanel } from "@/components/project/tables/selected-case-data-panel";
@@ -40,7 +40,7 @@ export function ProjectCaseViewer({
   const canMoveToNextImage =
     selectedImageIndex >= 0 && selectedImageIndex < imageCases.length - 1;
   const predictionColumns = useMemo(
-    () => uniqueColumns(workingCases.map((caseRow) => caseRow.predictionData)),
+    () => predictionColumnsWithEdits(workingCases),
     [workingCases]
   );
 
@@ -103,6 +103,7 @@ export function ProjectCaseViewer({
           key={`data-panel-${selectedCase?.id ?? "empty"}`}
           projectId={projectId}
           currentUserId={currentUserId}
+          currentUserName={currentUserName}
           caseRow={selectedCase}
           columnMetadata={columnMetadata}
           onUpdatePrediction={updatePredictionEdit}
@@ -112,6 +113,7 @@ export function ProjectCaseViewer({
       <PredictionDataTable
         projectId={projectId}
         currentUserId={currentUserId}
+        currentUserName={currentUserName}
         cases={workingCases}
         columns={predictionColumns}
         columnMetadata={columnMetadata}

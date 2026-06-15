@@ -7,6 +7,18 @@ export const collator = new Intl.Collator("ko-KR", {
   sensitivity: "base",
 });
 
+export const editColumnPrefix = "Edit ";
+
+export function editColumnName(column: string) {
+  return column.startsWith(editColumnPrefix) ? column : `${editColumnPrefix}${column}`;
+}
+
+export function editColumnSource(column: string) {
+  return column.startsWith(editColumnPrefix)
+    ? column.slice(editColumnPrefix.length)
+    : null;
+}
+
 export function uniqueColumns(rows: Record<string, string>[]) {
   const columns = new Set<string>();
 
@@ -17,6 +29,25 @@ export function uniqueColumns(rows: Record<string, string>[]) {
   }
 
   return [...columns];
+}
+
+export function predictionColumnsWithEdits(cases: CaseRow[]) {
+  const rawColumns = uniqueColumns(cases.map((caseRow) => caseRow.predictionData));
+  const knownEditColumns = new Set(
+    cases.flatMap((caseRow) => caseRow.editablePredictionColumns)
+  );
+  const orderedColumns: string[] = [];
+
+  for (const column of rawColumns) {
+    orderedColumns.push(column);
+
+    const pairedEditColumn = editColumnName(column);
+    if (knownEditColumns.has(pairedEditColumn) || knownEditColumns.has(column)) {
+      orderedColumns.push(pairedEditColumn);
+    }
+  }
+
+  return orderedColumns;
 }
 
 export function cellValue(row: Record<string, string>, column: string) {
@@ -48,11 +79,23 @@ export function effectivePredictionData(caseRow: CaseRow, userId: string) {
   const edit = caseRow.predictionEdits.find(
     (predictionEdit) => predictionEdit.userId === userId
   );
+  const editData = edit?.data ?? {};
+  const editableColumnSet = new Set(caseRow.editablePredictionColumns);
+  const effectiveData: Record<string, string> = {};
 
-  return {
-    ...caseRow.predictionData,
-    ...(edit?.data ?? {}),
-  };
+  for (const [column, value] of Object.entries(caseRow.predictionData)) {
+    effectiveData[column] = value;
+
+    const pairedEditColumn = editColumnName(column);
+    if (
+      editableColumnSet.has(pairedEditColumn) ||
+      editableColumnSet.has(column)
+    ) {
+      effectiveData[pairedEditColumn] = editData[pairedEditColumn] ?? value;
+    }
+  }
+
+  return effectiveData;
 }
 
 export function isNumericValue(value: string | undefined) {

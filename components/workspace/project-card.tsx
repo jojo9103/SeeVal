@@ -78,7 +78,7 @@ export function ProjectCard({
               </a>
             </Button>
           )}
-          {project.ownedByMe && (
+          {project.canManageShares && (
             <Button
               type="button"
               onClick={() => onShareStatus(project)}
@@ -87,7 +87,7 @@ export function ProjectCard({
               공유요청상황
             </Button>
           )}
-          {project.ownedByMe && (
+          {project.canManageShares && (
             <Button
               type="button"
               onClick={() => onShare(project)}

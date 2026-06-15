@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 
 import { prisma } from "@/lib/prisma";
 
-const sessionCookieName = "seev_session";
+export const sessionCookieName = "seev_session";
 const sessionMaxAgeSeconds = 60 * 60 * 8;
 
 type SessionPayload = {
@@ -82,7 +82,13 @@ export function parseSessionToken(token?: string) {
     return null;
   }
 
-  const session = JSON.parse(base64UrlDecode(payload)) as SessionPayload;
+  let session: SessionPayload;
+
+  try {
+    session = JSON.parse(base64UrlDecode(payload)) as SessionPayload;
+  } catch {
+    return null;
+  }
 
   if (session.exp < Math.floor(Date.now() / 1000)) {
     return null;
@@ -106,7 +112,14 @@ export async function setSessionCookie(payload: Omit<SessionPayload, "exp">) {
 export async function clearSessionCookie() {
   const cookieStore = await cookies();
 
-  cookieStore.delete(sessionCookieName);
+  cookieStore.set(sessionCookieName, "", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: shouldUseSecureSessionCookie(),
+    expires: new Date(0),
+    maxAge: 0,
+    path: "/",
+  });
 }
 
 export async function getSession() {

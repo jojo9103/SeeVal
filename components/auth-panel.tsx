@@ -59,7 +59,25 @@ function Field({
   );
 }
 
-export function AuthPanel({ initialView }: { initialView: AuthView }) {
+function getSafeNextPath(nextPath?: string) {
+  if (!nextPath?.startsWith("/") || nextPath.startsWith("//")) {
+    return undefined;
+  }
+
+  if (nextPath.startsWith("/auth")) {
+    return undefined;
+  }
+
+  return nextPath;
+}
+
+export function AuthPanel({
+  initialView,
+  nextPath,
+}: {
+  initialView: AuthView;
+  nextPath?: string;
+}) {
   const [view, setView] = useState<AuthView>(initialView);
   const [notice, setNotice] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -137,6 +155,7 @@ export function AuthPanel({ initialView }: { initialView: AuthView }) {
       body: JSON.stringify({
         email: formData.get("email"),
         password: formData.get("password"),
+        redirectTo: getSafeNextPath(nextPath),
       }),
     });
     const result = (await response.json()) as {

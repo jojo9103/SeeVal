@@ -35,6 +35,7 @@ export type OutgoingShareStatus = {
     name: string;
   };
   sharedWith: {
+    id: string;
     name: string;
     email: string;
     organization: string;
@@ -46,6 +47,7 @@ export type Project = {
   name: string;
   ownerName: string;
   ownedByMe: boolean;
+  canManageShares: boolean;
   canReview: boolean;
   canDelete: boolean;
   createdAt: string;
@@ -79,6 +81,7 @@ export type WorkspaceFormAction = (
   formData: FormData
 ) => Promise<WorkspaceActionState>;
 
+export type ShareCancelAction = (formData: FormData) => void | Promise<void>;
 export type ShareResponseAction = (formData: FormData) => void | Promise<void>;
 export type NotificationAction = (formData: FormData) => void | Promise<void>;
 

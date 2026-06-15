@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 
+import { editColumnName, editColumnSource } from "@/components/project/data-utils";
 import { requireUser } from "@/lib/auth";
 import { normalizePredictionEdit } from "@/lib/project-annotations";
 import {
@@ -23,6 +25,19 @@ function toStringArray(value: unknown) {
   return value.filter((item): item is string => typeof item === "string");
 }
 
+function toStringRecord(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, cellValue]) => [
+      key,
+      cellValue === null || cellValue === undefined ? "" : String(cellValue),
+    ])
+  );
+}
+
 async function requireProjectAccess(projectId: string, caseId: string) {
   const user = await requireUser();
   const projectCase = await prisma.projectCase.findFirst({
@@ -33,6 +48,7 @@ async function requireProjectAccess(projectId: string, caseId: string) {
         deletedAt: null,
         OR: [
           { ownerId: user.id },
+          ...(user.role === "ADMIN" ? [{ id: projectId }] : []),
           {
             shares: {
               some: {
@@ -75,26 +91,60 @@ export async function PUT(request: Request, { params }: RouteContext) {
     const { user, editablePredictionColumns, columnMetadata } =
       await requireProjectAccess(projectId, caseId);
     const normalizedData = normalizePredictionEdit(body.data);
-    const editableColumnSet = new Set(editablePredictionColumns);
+    const acceptedEditableColumnSet = new Set(editablePredictionColumns);
+
+    for (const column of editablePredictionColumns) {
+      acceptedEditableColumnSet.add(editColumnName(column));
+    }
+
     const nextData = Object.fromEntries(
-      Object.entries(normalizedData).filter(([key]) => editableColumnSet.has(key))
+      Object.entries(normalizedData).filter(([key]) =>
+        acceptedEditableColumnSet.has(key)
+      )
     );
-    const editableMetadata = columnMetadata
-      .filter((column) => editableColumnSet.has(column.name))
-      .map((column) => ({
-        name: column.name,
-        dataType: column.dataType,
-        minValue: column.minValue,
-        maxValue: column.maxValue,
-        nullable: column.nullable,
-        unit: column.unit,
-        description: column.description,
-      }));
+    const editableMetadata = [...acceptedEditableColumnSet].flatMap((columnName) => {
+        const sourceColumn = editColumnSource(columnName);
+        const metadata =
+          columnMetadata.find((column) => column.name === columnName) ??
+          (sourceColumn
+            ? columnMetadata.find((column) => column.name === sourceColumn)
+            : undefined);
+
+        if (!metadata) {
+          return [];
+        }
+
+        return [{
+          name: columnName,
+          dataType: metadata.dataType,
+          minValue: metadata.minValue,
+          maxValue: metadata.maxValue,
+          nullable: metadata.nullable,
+          unit: metadata.unit,
+          description: metadata.description,
+        }];
+      });
 
     assertRowsWithColumnMetadata({
       rows: [nextData],
       metadata: editableMetadata,
     });
+
+    const existingEdit = await prisma.projectCasePredictionEdit.findUnique({
+      where: {
+        caseId_userId: {
+          caseId,
+          userId: user.id,
+        },
+      },
+      select: {
+        data: true,
+      },
+    });
+    const mergedData = {
+      ...toStringRecord(existingEdit?.data),
+      ...nextData,
+    };
 
     await prisma.projectCasePredictionEdit.upsert({
       where: {
@@ -106,12 +156,15 @@ export async function PUT(request: Request, { params }: RouteContext) {
       create: {
         caseId,
         userId: user.id,
-        data: nextData,
+        data: mergedData,
       },
       update: {
-        data: nextData,
+        data: mergedData,
       },
     });
+
+    revalidatePath(`/workspace/projects/${projectId}`);
+    revalidatePath(`/workspace/projects/${projectId}/review`);
 
     return NextResponse.json({ ok: true });
   } catch (error) {

@@ -12,6 +12,7 @@ import {
 
 import {
   collator,
+  editColumnSource,
   effectivePredictionData,
   isNumericInputValue,
   pageSizeOptions,
@@ -27,6 +28,7 @@ import type {
 export function PredictionDataTable({
   projectId,
   currentUserId,
+  currentUserName,
   cases,
   columns,
   columnMetadata,
@@ -36,6 +38,7 @@ export function PredictionDataTable({
 }: {
   projectId: string;
   currentUserId: string;
+  currentUserName: string;
   cases: CaseRow[];
   columns: string[];
   columnMetadata: ColumnMetadata[];
@@ -85,9 +88,38 @@ export function PredictionDataTable({
     () => new Map(columnMetadata.map((metadata) => [metadata.name, metadata])),
     [columnMetadata]
   );
+  const editableColumnSet = useMemo(
+    () =>
+      new Set(cases.flatMap((caseRow) => caseRow.editablePredictionColumns)),
+    [cases]
+  );
 
   function columnDataType(column: string): ColumnDataType {
-    return metadataByColumn.get(column)?.dataType ?? "string";
+    const sourceColumn = editColumnSource(column);
+
+    return (
+      metadataByColumn.get(column)?.dataType ??
+      (sourceColumn ? metadataByColumn.get(sourceColumn)?.dataType : undefined) ??
+      "string"
+    );
+  }
+
+  function columnMetadataValue(column: string) {
+    const sourceColumn = editColumnSource(column);
+
+    return (
+      metadataByColumn.get(column) ??
+      (sourceColumn ? metadataByColumn.get(sourceColumn) : undefined)
+    );
+  }
+
+  function isEditableColumn(column: string) {
+    const sourceColumn = editColumnSource(column);
+
+    return (
+      sourceColumn !== null &&
+      (editableColumnSet.has(column) || editableColumnSet.has(sourceColumn))
+    );
   }
 
   function isInputAllowedByType(value: string, dataType: ColumnDataType) {
@@ -248,8 +280,8 @@ export function PredictionDataTable({
         <div>
           <h2 className="text-lg font-semibold">모델예측 결과</h2>
           <p className="mt-2 text-sm text-white/54">
-            모델예측 데이터를 기준으로 임상데이터와 공통된 컬럼을 연결했습니다.
-            image_folder와 image_id가 있으면 이미지 파일도 함께 연결합니다.
+            선택된 Edit column은 {currentUserName}님의 평가값으로 수정 및 저장됩니다.
+            저장된 값은 평가 취합에서 사용자별로 비교됩니다.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -348,7 +380,7 @@ export function PredictionDataTable({
                 </td>
                 {columns.map((column) => (
                   <td key={column} className="max-w-64 px-4 py-4">
-                    {caseRow.editablePredictionColumns.includes(column) ? (
+                    {isEditableColumn(column) ? (
                       columnDataType(column) === "bool" ? (
                         <select
                           value={
@@ -396,10 +428,10 @@ export function PredictionDataTable({
                           }
                           step={columnDataType(column) === "int" ? 1 : "any"}
                           min={
-                            metadataByColumn.get(column)?.minValue ?? undefined
+                            columnMetadataValue(column)?.minValue ?? undefined
                           }
                           max={
-                            metadataByColumn.get(column)?.maxValue ?? undefined
+                            columnMetadataValue(column)?.maxValue ?? undefined
                           }
                           onChange={(event) => {
                             if (

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Save } from "lucide-react";
 
 import {
+  editColumnSource,
   effectivePredictionData,
   isNumericInputValue,
 } from "@/components/project/data-utils";
@@ -18,12 +19,14 @@ type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
 export function SelectedCaseDataPanel({
   projectId,
   currentUserId,
+  currentUserName,
   caseRow,
   columnMetadata,
   onUpdatePrediction,
 }: {
   projectId: string;
   currentUserId: string;
+  currentUserName: string;
   caseRow: CaseRow | null;
   columnMetadata: ColumnMetadata[];
   onUpdatePrediction: (caseId: string, data: Record<string, string>) => void;
@@ -43,7 +46,31 @@ export function SelectedCaseDataPanel({
   );
 
   function columnDataType(column: string): ColumnDataType {
-    return metadataByColumn.get(column)?.dataType ?? "string";
+    const sourceColumn = editColumnSource(column);
+
+    return (
+      metadataByColumn.get(column)?.dataType ??
+      (sourceColumn ? metadataByColumn.get(sourceColumn)?.dataType : undefined) ??
+      "string"
+    );
+  }
+
+  function columnMetadataValue(column: string) {
+    const sourceColumn = editColumnSource(column);
+
+    return (
+      metadataByColumn.get(column) ??
+      (sourceColumn ? metadataByColumn.get(sourceColumn) : undefined)
+    );
+  }
+
+  function isEditableColumn(column: string) {
+    const sourceColumn = editColumnSource(column);
+
+    return (
+      sourceColumn !== null &&
+      (editableColumnSet.has(column) || editableColumnSet.has(sourceColumn))
+    );
   }
 
   function isInputAllowedByType(value: string, dataType: ColumnDataType) {
@@ -139,7 +166,7 @@ export function SelectedCaseDataPanel({
         <div>
           <h2 className="text-lg font-semibold">선택된 데이터</h2>
           <p className="mt-2 text-sm text-white/54">
-            이미지를 보면서 모델예측 값을 수정합니다.
+            Edit column은 {currentUserName}님의 평가값으로 저장됩니다.
           </p>
         </div>
         {caseRow?.registrationNumber && (
@@ -200,7 +227,7 @@ export function SelectedCaseDataPanel({
                       </th>
                       <td className="px-3 py-2 text-white/76">
                         {caseRow &&
-                        editableColumnSet.has(key) ? (
+                        isEditableColumn(key) ? (
                           columnDataType(key) === "bool" ? (
                             <select
                               value={value}
@@ -230,10 +257,10 @@ export function SelectedCaseDataPanel({
                               }
                               step={columnDataType(key) === "int" ? 1 : "any"}
                               min={
-                                metadataByColumn.get(key)?.minValue ?? undefined
+                                columnMetadataValue(key)?.minValue ?? undefined
                               }
                               max={
-                                metadataByColumn.get(key)?.maxValue ?? undefined
+                                columnMetadataValue(key)?.maxValue ?? undefined
                               }
                               onChange={(event) =>
                                 updatePredictionValue(key, event.target.value)

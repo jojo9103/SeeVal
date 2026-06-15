@@ -15,6 +15,7 @@ import {
   initialState,
   initialUploadStatus,
   type Project,
+  type ShareCancelAction,
   type ShareUser,
   type UploadStatus,
   type WorkspaceActionState,
@@ -24,14 +25,14 @@ import {
 export function ProjectWorkspacePanel({
   projects,
   shareUsers,
-  currentUserRole,
   requestProjectShare,
+  cancelProjectShare,
   deleteProject,
 }: {
   projects: Project[];
   shareUsers: ShareUser[];
-  currentUserRole: string;
   requestProjectShare: WorkspaceFormAction;
+  cancelProjectShare: ShareCancelAction;
   deleteProject: WorkspaceFormAction;
 }) {
   const router = useRouter();
@@ -62,7 +63,6 @@ export function ProjectWorkspacePanel({
     useState<UploadStatus>(initialUploadStatus);
   const uploadStartedAtRef = useRef(0);
   const uploadRequestRef = useRef<XMLHttpRequest | null>(null);
-  const isAdmin = currentUserRole === "ADMIN";
   const hasShareUserQuery = shareUserQuery.trim().length > 0;
   const filteredShareUsers = useMemo(() => {
     const query = shareUserQuery.trim().toLowerCase();
@@ -103,10 +103,11 @@ export function ProjectWorkspacePanel({
       setShareProject(null);
       setShareUserQuery("");
       setShareBanner(shareState);
+      router.refresh();
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [shareState]);
+  }, [router, shareState]);
 
   useEffect(() => {
     if (!deleteState.message) {
@@ -271,8 +272,7 @@ export function ProjectWorkspacePanel({
             <h2 className="text-lg font-semibold">시작하기</h2>
             <p className="mt-3 max-w-4xl text-sm leading-6 text-white/58">
               프로젝트를 생성하고 임상데이터, 모델예측 데이터, 이미지 파일을
-              업로드한 뒤, 필요한 USER에게{" "}
-              {isAdmin ? "바로 공유할 수 있습니다." : "공유 요청을 보낼 수 있습니다."}
+              업로드한 뒤, 필요한 USER에게 공유 요청을 보낼 수 있습니다.
             </p>
           </div>
           <Button
@@ -321,7 +321,6 @@ export function ProjectWorkspacePanel({
           <ShareProjectModal
             filteredShareUsers={filteredShareUsers}
             hasShareUserQuery={hasShareUserQuery}
-            isAdmin={isAdmin}
             project={shareProject}
             shareAction={shareAction}
             shareState={shareState}
@@ -345,6 +344,7 @@ export function ProjectWorkspacePanel({
                 shares={shareStatusProject.shareStatuses.filter(
                   (share) => share.status !== "ACCEPTED"
                 )}
+                cancelShare={cancelProjectShare}
               />
               <ShareStatusList
                 title="공유 허가된 사용자"
@@ -353,6 +353,7 @@ export function ProjectWorkspacePanel({
                   (share) => share.status === "ACCEPTED"
                 )}
                 showMessage={false}
+                cancelShare={cancelProjectShare}
               />
             </div>
           </ModalFrame>
