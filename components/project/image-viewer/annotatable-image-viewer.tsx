@@ -1,6 +1,14 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  type Dispatch,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import type {
   CaseRow,
@@ -18,19 +26,25 @@ import {
   polygonDragAddThreshold,
   resizeRectangle,
 } from "@/components/project/image-viewer/geometry";
-import { AnnotationList } from "@/components/project/image-viewer/annotation-list";
 import { AnnotationShape } from "@/components/project/image-viewer/annotation-shape";
 import { ImageViewerMinimap } from "@/components/project/image-viewer/minimap";
-import { useImageAnnotations } from "@/components/project/image-viewer/use-image-annotations";
 import { ViewerToolbar } from "@/components/project/image-viewer/viewer-toolbar";
 
 export function AnnotatableImageViewer({
-  projectId,
   caseRow,
+  annotations,
+  setAnnotations,
+  selectedAnnotationId,
+  setSelectedAnnotationId,
+  annotationFocusKey,
   imageNavigation,
 }: {
-  projectId: string;
   caseRow: CaseRow | null;
+  annotations: ImageAnnotation[];
+  setAnnotations: Dispatch<SetStateAction<ImageAnnotation[]>>;
+  selectedAnnotationId: string | null;
+  setSelectedAnnotationId: Dispatch<SetStateAction<string | null>>;
+  annotationFocusKey: number;
   imageNavigation?: {
     current: number;
     total: number;
@@ -61,13 +75,6 @@ export function AnnotatableImageViewer({
   });
   const [mode, setMode] = useState<ToolMode>("select");
   const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 });
-  const { annotations, setAnnotations } = useImageAnnotations({
-    caseId: caseRow?.id ?? null,
-    projectId,
-  });
-  const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(
-    null
-  );
   const [polygonDraft, setPolygonDraft] = useState<Point[]>([]);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const imageKey = `${caseRow?.id ?? "empty"}-${caseRow?.imageUrl ?? "none"}`;
@@ -75,6 +82,12 @@ export function AnnotatableImageViewer({
   const selectedAnnotation = annotations.find(
     (annotation) => annotation.id === selectedAnnotationId
   );
+  const [selectedPoint, setSelectedPoint] = useState<{
+    annotationId: string;
+    pointIndex: number;
+  } | null>(null);
+  const activeSelectedPoint =
+    selectedPoint?.annotationId === selectedAnnotationId ? selectedPoint : null;
   const draftRectangle =
     dragState?.type === "draw-rectangle"
       ? normalizeRectangle(dragState.start, dragState.current)
@@ -276,6 +289,43 @@ export function AnnotatableImageViewer({
     syncScrollState();
   }
 
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    const annotation = annotations.find(
+      (currentAnnotation) => currentAnnotation.id === selectedAnnotationId
+    );
+
+    if (!viewer || !annotation || displayScale === 0) {
+      return;
+    }
+
+    const center =
+      annotation.type === "rectangle"
+        ? {
+            x: annotation.x + annotation.width / 2,
+            y: annotation.y + annotation.height / 2,
+          }
+        : annotation.points.reduce(
+            (sum, point, index) => ({
+              x: sum.x + (point.x - sum.x) / (index + 1),
+              y: sum.y + (point.y - sum.y) / (index + 1),
+            }),
+            { x: 0, y: 0 }
+          );
+
+    viewer.scrollLeft =
+      center.x * displayScale + viewerPaddingX - viewer.clientWidth / 2;
+    viewer.scrollTop =
+      center.y * displayScale + viewerPaddingY - viewer.clientHeight / 2;
+  }, [
+    annotations,
+    annotationFocusKey,
+    displayScale,
+    selectedAnnotationId,
+    viewerPaddingX,
+    viewerPaddingY,
+  ]);
+
   useLayoutEffect(() => {
     if (
       didInitialFitRef.current ||
@@ -418,6 +468,7 @@ export function AnnotatableImageViewer({
 
     if (mode === "rectangle") {
       setSelectedAnnotationId(null);
+      setSelectedPoint(null);
       setDragState({ type: "draw-rectangle", start: point, current: point });
       event.currentTarget.setPointerCapture(event.pointerId);
       return;
@@ -425,6 +476,7 @@ export function AnnotatableImageViewer({
 
     if (mode === "polygon") {
       setSelectedAnnotationId(null);
+      setSelectedPoint(null);
       const closeThreshold = polygonCloseThreshold(displayScale);
 
       if (
@@ -462,6 +514,7 @@ export function AnnotatableImageViewer({
     }
 
     setSelectedAnnotationId(null);
+    setSelectedPoint(null);
   }
 
   function handleStagePointerMove(event: React.PointerEvent<SVGSVGElement>) {
@@ -523,6 +576,20 @@ export function AnnotatableImageViewer({
           0,
           naturalSize.height - dragState.original.height
         ),
+      });
+      return;
+    }
+
+    if (dragState.type === "move-polygon") {
+      const deltaX = point.x - dragState.start.x;
+      const deltaY = point.y - dragState.start.y;
+
+      updateAnnotation({
+        ...dragState.original,
+        points: dragState.original.points.map((polygonPoint) => ({
+          x: clamp(polygonPoint.x + deltaX, 0, naturalSize.width),
+          y: clamp(polygonPoint.y + deltaY, 0, naturalSize.height),
+        })),
       });
       return;
     }
@@ -617,7 +684,49 @@ export function AnnotatableImageViewer({
     setMode("select");
   }
 
-  function deleteSelectedAnnotation() {
+  const deleteSelectedAnnotation = useCallback(() => {
+    if (activeSelectedPoint) {
+      const selectedPointAnnotation = annotations.find(
+        (annotation) => annotation.id === activeSelectedPoint.annotationId
+      );
+
+      setAnnotations((current) =>
+        current.flatMap((annotation) => {
+          if (
+            annotation.id !== activeSelectedPoint.annotationId ||
+            annotation.type !== "polygon"
+          ) {
+            return [annotation];
+          }
+
+          const nextPoints = annotation.points.filter(
+            (_point, index) => index !== activeSelectedPoint.pointIndex
+          );
+
+          if (nextPoints.length < 3) {
+            return [];
+          }
+
+          return [
+            {
+              ...annotation,
+              points: nextPoints,
+            },
+          ];
+        })
+      );
+
+      if (
+        selectedPointAnnotation?.type === "polygon" &&
+        selectedPointAnnotation.points.length <= 3
+      ) {
+        setSelectedAnnotationId(null);
+      }
+
+      setSelectedPoint(null);
+      return;
+    }
+
     if (!selectedAnnotationId) {
       return;
     }
@@ -626,24 +735,43 @@ export function AnnotatableImageViewer({
       current.filter((annotation) => annotation.id !== selectedAnnotationId)
     );
     setSelectedAnnotationId(null);
-  }
+  }, [
+    activeSelectedPoint,
+    annotations,
+    selectedAnnotationId,
+    setAnnotations,
+    setSelectedAnnotationId,
+  ]);
 
-  function updateAnnotationName(annotationId: string, name: string) {
-    setAnnotations((current) =>
-      current.map((annotation, index) =>
-        annotation.id === annotationId
-          ? {
-              ...annotation,
-              name:
-                name ||
-                `${annotation.type === "polygon" ? "Polygon" : "Rectangle"} ${
-                  index + 1
-                }`,
-            }
-          : annotation
-      )
-    );
-  }
+  useEffect(() => {
+    function handleDeleteKey(event: KeyboardEvent) {
+      if (event.key !== "Delete" && event.key !== "Backspace") {
+        return;
+      }
+
+      const target = event.target;
+
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (!selectedAnnotationId) {
+        return;
+      }
+
+      event.preventDefault();
+      deleteSelectedAnnotation();
+    }
+
+    window.addEventListener("keydown", handleDeleteKey);
+
+    return () => window.removeEventListener("keydown", handleDeleteKey);
+  }, [deleteSelectedAnnotation, selectedAnnotationId]);
 
   function downloadAnnotations() {
     if (!caseRow) {
@@ -768,10 +896,16 @@ export function AnnotatableImageViewer({
                           key={annotation.id}
                           annotation={annotation}
                           eventPoint={eventPoint}
+                          mode={mode}
                           selected={annotation.id === selectedAnnotationId}
+                          selectedPointIndex={
+                            activeSelectedPoint?.annotationId === annotation.id
+                              ? activeSelectedPoint?.pointIndex ?? null
+                              : null
+                          }
                           setDragState={setDragState}
-                          setMode={setMode}
                           setSelectedAnnotationId={setSelectedAnnotationId}
+                          setSelectedPoint={setSelectedPoint}
                         />
                       ))}
                       {draftRectangle && (
@@ -829,16 +963,6 @@ export function AnnotatableImageViewer({
               />
             )}
           </div>
-
-          <AnnotationList
-            annotations={annotations}
-            selectedAnnotationId={selectedAnnotationId}
-            onSelect={(annotationId) => {
-              setMode("select");
-              setSelectedAnnotationId(annotationId);
-            }}
-            onRename={updateAnnotationName}
-          />
         </div>
       ) : (
         <div className="mt-5 rounded-xl border border-dashed border-white/14 bg-[#171717]/35 p-10 text-center text-sm text-white/45">

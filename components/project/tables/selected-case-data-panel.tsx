@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Save } from "lucide-react";
+import { RotateCcw, Save, Trash2 } from "lucide-react";
 
 import {
   editColumnSource,
@@ -11,10 +11,24 @@ import {
 import type {
   CaseRow,
   ColumnDataType,
+  ImageAnnotation,
   ColumnMetadata,
 } from "@/components/project/types";
+import { SelectedCaseAnnotationPanel } from "@/components/project/tables/selected-case-annotation-panel";
+import { SelectedCaseCommentsPanel } from "@/components/project/tables/selected-case-comments-panel";
 
 type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
+type SelectedDataSection = "clinical" | "prediction" | "annotation" | "comments";
+
+const selectedDataSections: Array<{
+  id: SelectedDataSection;
+  label: string;
+}> = [
+  { id: "clinical", label: "임상데이터" },
+  { id: "prediction", label: "모델예측 결과" },
+  { id: "annotation", label: "Annotations" },
+  { id: "comments", label: "Comments" },
+];
 
 export function SelectedCaseDataPanel({
   projectId,
@@ -23,6 +37,12 @@ export function SelectedCaseDataPanel({
   caseRow,
   columnMetadata,
   onUpdatePrediction,
+  annotations,
+  selectedAnnotationId,
+  onSelectAnnotation,
+  onRenameAnnotation,
+  onDeleteSelectedAnnotation,
+  onSaveAnnotations,
 }: {
   projectId: string;
   currentUserId: string;
@@ -30,7 +50,15 @@ export function SelectedCaseDataPanel({
   caseRow: CaseRow | null;
   columnMetadata: ColumnMetadata[];
   onUpdatePrediction: (caseId: string, data: Record<string, string>) => void;
+  annotations: ImageAnnotation[];
+  selectedAnnotationId: string | null;
+  onSelectAnnotation: (annotationId: string) => void;
+  onRenameAnnotation: (annotationId: string, name: string) => void;
+  onDeleteSelectedAnnotation: () => void;
+  onSaveAnnotations: () => Promise<void>;
 }) {
+  const [activeSection, setActiveSection] =
+    useState<SelectedDataSection>("clinical");
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [saveError, setSaveError] = useState("");
   const clinicalEntries = Object.entries(caseRow?.clinicalData ?? {}).filter(
@@ -83,6 +111,16 @@ export function SelectedCaseDataPanel({
     }
 
     return true;
+  }
+
+  function editableEditColumns() {
+    if (!caseRow) {
+      return [];
+    }
+
+    return Object.keys(effectivePredictionData(caseRow, currentUserId)).filter(
+      isEditableColumn
+    );
   }
 
   useEffect(() => {
@@ -144,6 +182,68 @@ export function SelectedCaseDataPanel({
     }
   }
 
+  async function managePrediction(operation: "reset" | "delete") {
+    if (!caseRow) {
+      return;
+    }
+
+    const targetColumns = editableEditColumns();
+
+    if (targetColumns.length === 0) {
+      return;
+    }
+
+    if (
+      operation === "delete" &&
+      !window.confirm("선택된 샘플의 Edit column 값을 삭제할까요?")
+    ) {
+      return;
+    }
+
+    setSaveStatus("saving");
+
+    try {
+      const response = await fetch(
+        `/api/projects/${projectId}/cases/${caseRow.id}/prediction`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            operation,
+            columns: targetColumns,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const result = (await response.json().catch(() => ({}))) as {
+          message?: string;
+        };
+
+        throw new Error(result.message ?? "Edit 데이터를 변경하지 못했습니다.");
+      }
+
+      const nextData = { ...effectivePredictionData(caseRow, currentUserId) };
+
+      for (const column of targetColumns) {
+        if (operation === "delete") {
+          nextData[column] = "";
+          continue;
+        }
+
+        nextData[column] = "";
+      }
+
+      onUpdatePrediction(caseRow.id, nextData);
+      setSaveStatus("saved");
+    } catch (error) {
+      setSaveError(
+        error instanceof Error ? error.message : "Edit 데이터를 변경하지 못했습니다."
+      );
+      setSaveStatus("error");
+    }
+  }
+
   function saveLabel() {
     if (saveStatus === "saving") {
       return "저장 중";
@@ -176,9 +276,27 @@ export function SelectedCaseDataPanel({
         )}
       </div>
 
-      <div className="mt-5 grid gap-5 2xl:h-[690px] 2xl:grid-rows-[minmax(0,1fr)_minmax(0,1.35fr)]">
-        <section className="min-h-0">
-          <h3 className="text-sm font-semibold text-white">임상데이터</h3>
+      <nav className="mt-5 grid grid-cols-2 gap-1 rounded-xl border border-white/10 bg-[#171717]/55 p-1 sm:grid-cols-4">
+        {selectedDataSections.map((section) => (
+          <button
+            key={section.id}
+            type="button"
+            onClick={() => setActiveSection(section.id)}
+            className={`min-h-9 rounded-lg px-2 text-sm font-medium transition ${
+              activeSection === section.id
+                ? "bg-teal-300/14 text-teal-50"
+                : "text-white/50 hover:bg-white/[0.06] hover:text-white/78"
+            }`}
+          >
+            {section.label}
+          </button>
+        ))}
+      </nav>
+
+      <div className="mt-5 min-h-0 2xl:h-[620px]">
+        {activeSection === "clinical" && (
+          <section className="min-h-0 2xl:h-full">
+            <h3 className="text-sm font-semibold text-white">임상데이터</h3>
           <div className="mt-3 max-h-52 overflow-auto rounded-xl border border-white/10 2xl:max-h-none 2xl:h-[calc(100%-2rem)]">
             {clinicalEntries.length > 0 ? (
               <table className="w-full text-left text-sm">
@@ -201,20 +319,42 @@ export function SelectedCaseDataPanel({
               </div>
             )}
           </div>
-        </section>
+          </section>
+        )}
 
-        <section className="min-h-0">
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="text-sm font-semibold text-white">모델예측 결과</h3>
-            <button
-              type="button"
-              onClick={savePrediction}
-              disabled={!caseRow || saveStatus === "idle" || saveStatus === "saving"}
-              className="inline-flex h-8 items-center gap-2 rounded-md border border-teal-200/25 bg-teal-300/12 px-3 text-xs font-medium text-teal-50 transition hover:bg-teal-300/22 disabled:cursor-not-allowed disabled:opacity-35"
-            >
-              <Save className="h-3.5 w-3.5" />
-              {saveLabel()}
-            </button>
+        {activeSection === "prediction" && (
+          <section className="min-h-0 2xl:h-full">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-white">모델예측 결과</h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => managePrediction("reset")}
+                disabled={!caseRow || !hasEditableColumns || saveStatus === "saving"}
+                className="inline-flex h-8 items-center gap-2 rounded-md border border-white/12 bg-white/[0.04] px-3 text-xs font-medium text-white/70 transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-35"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                Reset
+              </button>
+              <button
+                type="button"
+                onClick={() => managePrediction("delete")}
+                disabled={!caseRow || !hasEditableColumns || saveStatus === "saving"}
+                className="inline-flex h-8 items-center gap-2 rounded-md border border-rose-200/20 bg-rose-300/10 px-3 text-xs font-medium text-rose-50 transition hover:bg-rose-300/18 disabled:cursor-not-allowed disabled:opacity-35"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                삭제
+              </button>
+              <button
+                type="button"
+                onClick={savePrediction}
+                disabled={!caseRow || saveStatus === "idle" || saveStatus === "saving"}
+                className="inline-flex h-8 items-center gap-2 rounded-md border border-teal-200/25 bg-teal-300/12 px-3 text-xs font-medium text-teal-50 transition hover:bg-teal-300/22 disabled:cursor-not-allowed disabled:opacity-35"
+              >
+                <Save className="h-3.5 w-3.5" />
+                {saveLabel()}
+              </button>
+            </div>
           </div>
           <div className="mt-3 max-h-[360px] overflow-auto rounded-xl border border-white/10 2xl:max-h-none 2xl:h-[calc(100%-2.75rem)]">
             {predictionEntries.length > 0 ? (
@@ -301,7 +441,46 @@ export function SelectedCaseDataPanel({
                     ? "지정된 컬럼만 수정할 수 있습니다."
                     : "수정 허용 컬럼이 지정되지 않아 읽기 전용입니다."}
           </p>
-        </section>
+          </section>
+        )}
+
+        {activeSection === "annotation" && (
+          <section className="min-h-0 2xl:h-full">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-white">Annotations</h3>
+              <span className="text-xs text-white/42">
+                Image Viewer에서 생성한 현재 사용자 annotation입니다.
+              </span>
+            </div>
+            <div className="mt-3 2xl:h-[calc(100%-2rem)]">
+              <SelectedCaseAnnotationPanel
+                annotations={caseRow ? annotations : []}
+                selectedAnnotationId={selectedAnnotationId}
+                onSelect={onSelectAnnotation}
+                onRename={onRenameAnnotation}
+                onDeleteSelected={onDeleteSelectedAnnotation}
+                onSave={onSaveAnnotations}
+              />
+            </div>
+          </section>
+        )}
+
+        {activeSection === "comments" && (
+          <section className="min-h-0 2xl:h-full">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-white">Comments</h3>
+              <span className="text-xs text-white/42">
+                현재 이미지에 대한 내 comments입니다.
+              </span>
+            </div>
+            <div className="mt-3 2xl:h-[calc(100%-2rem)]">
+              <SelectedCaseCommentsPanel
+                projectId={projectId}
+                caseId={caseRow?.id ?? null}
+              />
+            </div>
+          </section>
+        )}
       </div>
     </aside>
   );

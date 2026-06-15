@@ -1,8 +1,8 @@
 "use client";
 
-import { Map, Table } from "lucide-react";
+import { Map, MessageSquareText, Table } from "lucide-react";
 
-export type ReviewSection = "results" | "annotations";
+export type ReviewSection = "results" | "annotations" | "comments";
 
 const reviewSections: Array<{
   id: ReviewSection;
@@ -16,8 +16,13 @@ const reviewSections: Array<{
   },
   {
     id: "annotations",
-    label: "Annotation 위치 취합",
+    label: "Annotations 위치 취합",
     icon: Map,
+  },
+  {
+    id: "comments",
+    label: "Comments 취합",
+    icon: MessageSquareText,
   },
 ];
 

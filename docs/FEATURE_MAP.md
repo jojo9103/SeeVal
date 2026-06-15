@@ -8,7 +8,8 @@
   - 로그인하지 않은 사용자가 `/workspace`, `/admin`, `/api/projects`, `/api/project-files`에 직접 접근하면 차단합니다.
   - 페이지 요청은 `/auth?next=...`로 보내 로그인 후 원래 접근하려던 화면으로 돌아갈 수 있게 합니다.
   - 보호 API 요청은 `401`과 `로그인이 필요합니다.` JSON 응답을 반환합니다.
-  - proxy는 세션 쿠키 존재 여부를 빠르게 확인하고, 실제 서명/만료/유저 상태 검증은 각 route의 `requireUser`/`requireAdmin`이 담당합니다.
+  - proxy는 세션 쿠키 payload의 `exp`를 빠르게 확인해 만료되었거나 깨진 쿠키를 삭제하고 로그인 페이지로 돌려보냅니다.
+  - 실제 서명/유저 상태 검증은 각 route의 `requireUser`/`requireAdmin`이 담당합니다.
 
 - `app/workspace/page.tsx`
   - 로그인한 사용자의 workspace 첫 화면입니다.
@@ -39,8 +40,9 @@
 
 - `components/project-case-viewer.tsx`
   - 프로젝트 평가 화면의 최상위 조립 컴포넌트입니다.
-  - 선택된 case, 예측값 편집 상태, 비교 column 상태를 관리합니다.
+  - 선택된 case, 예측값 편집 상태, annotation 상태, 비교 column 상태를 관리합니다.
   - 실제 UI는 아래 컴포넌트로 위임합니다.
+  - annotation 상태를 Image Viewer와 선택된 데이터 패널에 함께 전달해 overlay와 목록/naming이 같은 데이터를 사용합니다.
   - 프로젝트별 column metadata를 모델예측 테이블과 선택 데이터 패널에 전달합니다.
 
 - `components/project/types.ts`
@@ -57,6 +59,9 @@
   - Image Viewer의 상위 조립 컴포넌트입니다.
   - 이미지 fit-to-view, wheel zoom, pan, polygon/rectangle drawing state, pointer event 흐름을 관리합니다.
   - 초기 fit 상태에서도 이미지가 viewer 영역보다 큰 경우 드래그로 위치를 이동할 수 있습니다.
+  - `이동` 도구에서 rectangle과 polygon 객체 전체를 드래그해 옮길 수 있습니다.
+  - 선택된 polygon의 point handle은 개별 선택할 수 있고, 삭제 버튼으로 선택 point를 제거합니다.
+  - polygon point 삭제 후 point가 3개 미만이면 polygon 객체를 제거합니다.
   - polygon은 클릭 방식과 드래그 방식을 모두 지원합니다.
   - rectangle은 생성, 이동, 크기 조절, 삭제를 지원합니다.
   - annotation은 이미지 원본 pixel 좌표 기준으로 저장됩니다.
@@ -96,6 +101,9 @@
   - 선택된 raw column 옆에 `Edit {column}` 수정용 column을 표시합니다.
   - 프로젝트별 수정 허용 column에 포함된 `Edit {column}` 값을 수정 가능하며, column metadata에 따라 int/float/string/category/bool 입력 UI를 사용합니다.
   - 공유받은 USER가 수정한 `Edit {column}` 값은 해당 USER의 `ProjectCasePredictionEdit`로 저장되어 평가 취합에서 사용자별로 비교됩니다.
+  - 선택된 샘플의 `Edit {column}` 값을 reset/delete할 수 있습니다.
+    - reset은 `Edit {column}` 값을 빈 값으로 저장해 표에서 `-`로 보이게 합니다.
+    - 삭제는 해당 사용자/샘플의 `Edit {column}` key를 제거합니다.
   - int는 정수 입력, float은 소수 입력을 허용하고 min/max 속성을 반영합니다.
   - 저장 버튼으로 사용자별 편집값을 저장하며, backend validation 실패 메시지를 표시합니다.
   - 정렬, 페이지네이션, 30/60/90 rows 표시 옵션을 지원합니다.
@@ -103,17 +111,36 @@
 
 - `components/project/tables/selected-case-data-panel.tsx`
   - 선택된 샘플의 임상데이터와 모델예측 결과를 side panel로 보여줍니다.
+  - 패널 내부 Navbar로 `임상데이터`, `모델예측 결과`, `Annotations`, `Comments` 탭을 전환합니다.
+  - `Annotations` 탭은 Image Viewer 아래에 있던 annotation 목록을 이동한 위치이며, 여기서 annotation naming 수정, 선택 삭제, 저장 버튼 즉시 저장을 할 수 있습니다.
+  - `Comments` 탭은 현재 이미지/샘플에 대한 현재 사용자 comment를 작성하고 저장합니다.
   - 수정 허용 `Edit {column}`은 column metadata에 따라 int/float/string/category/bool 입력 UI를 사용합니다.
   - 현재 로그인한 사용자 이름을 안내해, 공유받은 USER도 본인 평가값을 저장한다는 점을 명확히 표시합니다.
+  - 선택된 샘플의 `Edit {column}` 값을 reset/delete할 수 있습니다.
   - 저장 실패 시 backend validation 메시지를 표시합니다.
+
+- `components/project/tables/selected-case-annotation-panel.tsx`
+  - 선택된 데이터 패널의 `Annotations` 탭 내용을 담당합니다.
+  - `AnnotationList`를 감싸는 작은 조립 컴포넌트입니다.
+  - 현재 선택된 case의 annotation 목록을 보여주고 이름 수정, 선택 삭제, 명시 저장, annotation 선택을 처리합니다.
+  - 목록의 객체 카드를 누르면 Image Viewer에서 해당 annotation이 선택 표시되고 중심 위치로 이동합니다.
+  - annotation 생성/도형 편집/저장은 기존 Image Viewer와 공유 상태를 통해 계속 동작합니다.
+
+- `components/project/tables/selected-case-comments-panel.tsx`
+  - 선택된 데이터 패널의 `Comments` 탭 내용을 담당합니다.
+  - 현재 선택된 case의 현재 사용자 comment를 불러오고 textarea에서 수정한 뒤 저장 버튼으로 저장합니다.
+  - 빈 comment를 저장하면 해당 사용자의 comment row를 삭제해 취합 화면에서 보이지 않게 합니다.
 
 - `components/project-review-table.tsx`
   - 평가 취합 페이지의 테이블입니다.
-  - 상단 `ReviewSectionMenu`로 `평가 결과 취합`과 `Annotation 위치 취합`을 전환합니다.
+  - 상단 `ReviewSectionMenu`로 `평가 결과 취합`, `Annotations 위치 취합`, `Comments 취합`을 전환합니다.
   - `ReviewCheckpointPanel`을 통해 현재 취합 상태 checkpoint 생성과 checkpoint 복구 action을 연결합니다.
+  - 선택된 column chip 또는 Column 찾기에서 column을 해제하면 취합 표시와 수정 허용 목록에서만 빠지고, 기존 사용자별 Edit 데이터는 보존합니다.
   - `Column 찾기` 검색 팝오버에서 여러 column을 multi select할 수 있습니다.
   - 선택한 raw column을 저장하면 프로젝트 평가 화면에서 `Edit {column}` 수정 가능 항목이 됩니다.
   - 취합 표는 `{column}` raw 값은 한 번만 보여주고, `Edit {column} ({User name})` 형태로 ADMIN/프로젝트 소유자/공유받은 사용자별 수정값을 펼쳐 보여줍니다.
+  - 취합 표의 `Edit {column} ({User name})` header 리셋 버튼은 해당 사용자/해당 Edit column 값만 빈 값으로 저장해 표에서 `-`로 보이게 합니다.
+  - 사용자별 Edit column 리셋은 column 선택/해제와 별개로 동작하며, 다른 사용자의 Edit 값은 유지합니다.
   - `컬럼 설정` 버튼을 누르면 배너/모달 형식으로 선택된 raw column의 metadata를 수정합니다.
   - 설정 화면에는 raw `{column}` 이름만 보여주지만, 저장되는 metadata 이름과 실제 검증/수정 적용 대상은 `Edit {column}`입니다.
   - metadata 필드: `dataType`, `minValue`, `maxValue`, `nullable`, `unit`, `description`.
@@ -146,7 +173,7 @@
 
 - `components/project-review/section-menu.tsx`
   - 평가 취합 페이지의 상단 메뉴를 담당합니다.
-  - 메뉴 항목은 `평가 결과 취합`, `Annotation 위치 취합`으로 나뉘며, 선택된 항목만 본문에 렌더링합니다.
+  - 메뉴 항목은 `평가 결과 취합`, `Annotations 위치 취합`, `Comments 취합`으로 나뉘며, 선택된 항목만 본문에 렌더링합니다.
   - 메뉴 타입 `ReviewSection`을 이 파일에서 관리해 섹션 추가 시 변경 지점을 줄입니다.
 
 - `components/project-review/checkpoints.tsx`
@@ -159,6 +186,15 @@
   - 평가 취합 페이지에서 환자별 annotation 요약과 이미지 overlay 취합을 담당합니다.
   - 환자별로 annotation 개수와 사용자별 개수를 짧게 보여주고, 선택한 환자의 이미지 위에 여러 사용자의 rectangle/polygon을 색상별로 함께 표시합니다.
   - annotation 좌표는 저장된 이미지 원본 pixel 좌표를 그대로 사용해 overlay합니다.
+  - `샘플 JSON` 버튼은 현재 선택된 샘플의 annotations를 다운로드합니다.
+  - `전체 JSON` 버튼은 전체 샘플의 annotations를 다운로드합니다.
+  - 다운로드 시 `사용자별 데이터 포함`은 사용자별 원본 annotations를 유지하고, `통합 공통 annotation만`은 같은 geometry가 모든 annotator에게 존재하는 annotation만 내보냅니다.
+
+- `components/project-comments-review-viewer.tsx`
+  - 평가 취합 페이지의 `Comments 취합` 탭을 담당합니다.
+  - comment가 있는 이미지/샘플만 목록에 표시합니다.
+  - 선택한 이미지 preview를 왼쪽에 보여주고, 오른쪽에는 comment가 있는 사용자들의 내용만 취합해 보여줍니다.
+  - `샘플 JSON`은 현재 선택된 샘플의 comments를 저장하고, `전체 JSON`은 comment가 있는 전체 샘플의 comments를 저장합니다.
 
 - `app/api/projects/[projectId]/cases/[caseId]/prediction/route.ts`
   - 사용자별 모델예측 수정값 저장 API입니다.
@@ -166,13 +202,23 @@
   - 프로젝트 소유자, 공유 허가된 USER, ADMIN이 접근할 수 있습니다.
   - 저장 전에 수정 허용 `Edit {column}`의 `ProjectColumnMetadata` 규칙으로 입력값을 검증합니다.
   - 저장 시 현재 수정 허용 column 값만 갱신하고, 현재 선택 해제되어 화면에 숨겨진 과거 `Edit {column}` 값은 보존합니다.
+  - `PATCH`는 현재 로그인한 사용자의 선택 샘플 `Edit {column}` reset/delete를 처리합니다.
+    - reset은 선택 Edit key를 빈 값으로 저장하고, delete는 선택 Edit key를 제거합니다.
   - 저장 성공 후 프로젝트 상세와 평가 취합 경로를 revalidate해 공유받은 USER의 수정값이 취합 화면에 반영되도록 합니다.
   - 실패 시 `{ row, column, value, message }` 형태의 오류 목록을 반환합니다.
+
+- `app/api/projects/[projectId]/cases/[caseId]/comments/route.ts`
+  - 사용자별 이미지/샘플 comment 저장 API입니다.
+  - DB의 `ProjectCaseComment` 모델을 사용합니다.
+  - 프로젝트 소유자, 공유 허가된 USER, ADMIN이 접근할 수 있습니다.
+  - `GET`은 현재 로그인한 사용자의 comment를 반환합니다.
+  - `PUT`은 현재 로그인한 사용자의 comment를 upsert하고, 빈 comment는 삭제합니다.
 
 - `lib/auth.ts`
   - `seev_session` 쿠키 생성/검증/삭제와 `requireUser`, `requireAdmin` 인증 guard를 담당합니다.
   - 로그아웃 시 세션 쿠키는 생성 때와 같은 `path`, `sameSite`, `secure`, `httpOnly` 옵션에 `maxAge=0`, 과거 `expires`를 함께 지정해 삭제합니다.
   - malformed session token은 JSON parse 실패 시 로그인되지 않은 상태로 처리합니다.
+  - 세션 만료 시 보호 페이지 접근은 proxy에서 `/auth?next=...`로 이동하고, 서버 guard는 최종적으로 인증 상태를 다시 확인합니다.
 
 ## Upload And Project Data
 
@@ -307,6 +353,8 @@
   - 취소 시 `ProjectShare` row를 삭제해 프로젝트 접근 권한을 즉시 말소합니다.
   - UI에서는 취소 submit 즉시 해당 공유 row를 숨겨 사용자가 취소 결과를 바로 확인할 수 있습니다.
   - 삭제된 공유 row는 다음 공유 시 재사용되지 않으므로, USER에게 새 공유 요청이 다시 생성됩니다.
+  - 공유 취소는 `ProjectShare`만 삭제하고 사용자별 `ProjectCasePredictionEdit` 데이터는 삭제하지 않습니다.
+  - 따라서 공유가 끊겼다가 다시 수락되어도, reset/delete로 명시 제거하지 않은 기존 사용자 평가 데이터는 다시 취합할 수 있습니다.
   - 공유 모달에서 이미 공유되었거나 공유 요청 대기 중인 USER는 상태 badge로 표시하고 중복 선택을 막습니다.
 
 - 평가 취합 Column 선택 UX
@@ -324,6 +372,8 @@
   - annotation UI를 toolbar, minimap, shape, list, hook으로 분리했습니다.
   - 이미지가 있는 케이스를 이전/다음으로 이동하는 버튼을 추가했습니다.
   - rectangle/polygon annotation을 사용자별 저장하고 평가 취합에서 overlay로 비교합니다.
+  - polygon point가 선택된 상태에서 toolbar 삭제 또는 키보드 `Delete`/`Backspace`를 누르면 해당 point만 삭제합니다.
+  - point가 선택되지 않고 annotation 객체만 선택된 상태에서 삭제하면 annotation 객체를 삭제합니다.
 
 - 평가 결과 취합
   - 상단 메뉴에서 `평가 결과 취합`과 `Annotation 위치 취합`을 별도 화면처럼 전환할 수 있습니다.
@@ -332,6 +382,9 @@
   - Checkpoint는 `ProjectReviewCheckpoint`에 snapshot JSON으로 저장하며, 복구 시 수정 허용 column, metadata, 사용자별 Edit 데이터를 해당 시점으로 되돌립니다.
   - Checkpoint 삭제는 snapshot row만 삭제하고 현재 프로젝트 설정/입력값은 유지합니다.
   - Checkpoint UI는 `components/project-review/checkpoints.tsx`로 분리해 취합 테이블 렌더링과 checkpoint 생성/복구/삭제 UI 책임을 나눴습니다.
+  - Column 선택 해제는 기존 사용자별 Edit 데이터를 삭제하지 않고 숨김/수정 허용 목록에서만 제외합니다.
+  - 숨겨진 column을 다시 선택하면 보존된 사용자별 Edit 데이터가 취합 표에 다시 표시됩니다.
+  - 사용자별 Edit 데이터 초기화는 취합 표의 `Edit {column} ({User name})` header reset 버튼으로 처리합니다.
   - 수정 허용 column 저장과 결과 파일 저장을 별도 기능으로 분리했습니다.
   - 결과 파일 저장은 CSV/TSV/Excel 형식 선택 후 `저장하기` 버튼으로 실행합니다.
   - Column 선택 영역의 `컬럼 설정` 배너에서 타입/범위/nullable/unit/description을 저장합니다.
@@ -343,7 +396,18 @@
   - 취합 테이블 내부 세로 높이 제한을 두지 않아 선택한 페이지 크기의 rows가 모두 보입니다.
   - 취합 테이블 정렬은 현재 선택된 sort 기준으로 전체 rows를 먼저 정렬한 뒤 페이지네이션을 적용합니다.
   - 취합 페이지네이션은 렌더링 성능과 화면 탐색용이며, CSV/TSV/Excel 저장은 전체 취합 rows를 유지합니다.
-  - Annotation 위치 취합은 별도 컴포넌트에서 환자별 overlay 비교를 담당합니다.
+  - Annotations 위치 취합은 별도 컴포넌트에서 환자별 overlay 비교와 JSON 다운로드를 담당합니다.
+  - Annotations JSON 다운로드는 현재 샘플 단위와 전체 샘플 단위를 지원하며, 사용자별 원본 데이터 또는 annotator 공통 geometry만 선택해 저장할 수 있습니다.
+  - Comments 취합은 현재 샘플 또는 comment가 있는 전체 샘플을 JSON으로 저장할 수 있습니다.
+
+- 모델예측 결과 입력
+  - 모델예측 결과 표는 table head의 각 column 필터 입력과 상단 `필터` 버튼으로 column/value 필터를 지원합니다.
+  - 여러 column에 값을 입력한 뒤 `필터`를 누르면 모든 조건이 AND 조건으로 동시에 적용됩니다.
+  - 적용된 필터는 상단 배지나 각 head의 해제 버튼으로 개별 해제할 수 있고, `필터 해제`로 전체 해제할 수 있습니다.
+  - 필터가 적용되면 표에 남은 샘플만 표시되고, 표 안에서 가능한 수정도 해당 샘플들로 제한됩니다.
+  - 필터가 적용되면 Image Viewer의 이전/다음 이동 대상과 이미지 개수도 필터된 샘플의 이미지 목록을 기준으로 바뀝니다.
+  - 필터 입력값과 cell 값이 모두 숫자로 해석되면 metadata와 관계없이 숫자 비교로 필터링해 `1`, `1.0`, `1.00`을 같은 값으로 취급합니다.
+  - 필터 기준은 `샘플`, `image_id`, raw prediction column, `Edit {column}` column 모두 선택할 수 있습니다.
 
 ## Maintenance Notes
 

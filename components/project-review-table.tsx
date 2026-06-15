@@ -9,12 +9,14 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  RotateCcw,
   Search,
   SlidersHorizontal,
   X,
 } from "lucide-react";
 
 import { ProjectAnnotationReviewViewer } from "@/components/project-annotation-review-viewer";
+import { ProjectCommentsReviewViewer } from "@/components/project-comments-review-viewer";
 import {
   collator,
   editColumnName,
@@ -53,6 +55,13 @@ type ReviewRow = {
     userName: string;
     userEmail: string;
     annotations: ReviewAnnotation[];
+  }>;
+  comments: Array<{
+    userId: string;
+    userName: string;
+    userEmail: string;
+    content: string;
+    updatedAt: string;
   }>;
 };
 
@@ -263,6 +272,7 @@ export function ProjectReviewTable({
   createCheckpoint,
   restoreCheckpoint,
   deleteCheckpoint,
+  resetUserEditColumn,
 }: {
   projectId: string;
   projectName: string;
@@ -283,9 +293,13 @@ export function ProjectReviewTable({
   deleteCheckpoint: (
     formData: FormData
   ) => Promise<{ ok: boolean; message?: string }>;
+  resetUserEditColumn: (
+    formData: FormData
+  ) => Promise<{ ok: boolean; message?: string }>;
 }) {
   const router = useRouter();
-  const columns = useMemo(() => uniqueColumns(rows), [rows]);
+  const [reviewRows, setReviewRows] = useState(rows);
+  const columns = useMemo(() => uniqueColumns(reviewRows), [reviewRows]);
   const initialSelectedColumns = useMemo(
     () =>
       editableColumns
@@ -324,19 +338,19 @@ export function ProjectReviewTable({
     column.toLowerCase().includes(columnQuery.trim().toLowerCase())
   );
   const dynamicColumnCount = visibleColumns.length * (sharedUsers.length + 1);
-  const canExport = rows.length > 0 && visibleColumns.length > 0;
+  const canExport = reviewRows.length > 0 && visibleColumns.length > 0;
   const exportFileBaseName = `${
     sanitizeFileName(projectName) || "seev-project"
   }-review-results`;
   const sortedRows = useMemo(() => {
-    return [...rows].sort((left, right) => {
+    return [...reviewRows].sort((left, right) => {
       const leftValue = reviewSortValue(left, sortConfig.key);
       const rightValue = reviewSortValue(right, sortConfig.key);
       const result = collator.compare(leftValue, rightValue);
 
       return sortConfig.direction === "asc" ? result : -result;
     });
-  }, [rows, sortConfig]);
+  }, [reviewRows, sortConfig]);
   const reviewPageCount = Math.max(1, Math.ceil(sortedRows.length / reviewPageSize));
   const currentReviewPage = Math.min(reviewPage, reviewPageCount);
   const reviewStartIndex = (currentReviewPage - 1) * reviewPageSize;
@@ -351,7 +365,7 @@ export function ProjectReviewTable({
   );
 
   function inferMetadataForColumn(column: string): ColumnMetadata {
-    const values = rows
+    const values = reviewRows
       .map((row) => row.predictionData[column])
       .filter((value) => !isEmptyMetadataValue(value));
 
@@ -375,7 +389,7 @@ export function ProjectReviewTable({
   }
 
   function metadataMatchesColumnValues(metadata: ColumnMetadata, column: string) {
-    return rows.every((row) => {
+    return reviewRows.every((row) => {
       const value = row.predictionData[column];
 
       if (isEmptyMetadataValue(value)) {
@@ -478,14 +492,13 @@ export function ProjectReviewTable({
 
   function toggleColumn(column: string) {
     setSaveMessage("");
-    setSelectedColumns((current) => {
-      const nextColumns = current.includes(column)
-        ? current.filter((item) => item !== column)
-        : [...current, column];
+    const isSelected = selectedColumns.includes(column);
+    const nextColumns = isSelected
+      ? selectedColumns.filter((item) => item !== column)
+      : [...selectedColumns, column];
 
-      syncMetadataWithColumns(nextColumns);
-      return nextColumns;
-    });
+    setSelectedColumns(nextColumns);
+    syncMetadataWithColumns(nextColumns);
   }
 
   function selectAllColumns() {
@@ -539,7 +552,7 @@ export function ProjectReviewTable({
   function exportDelimited(format: Extract<ExportFormat, "csv" | "tsv">) {
     const delimiter = format === "csv" ? "," : "\t";
     const content = toDelimitedText(
-      buildExportRows({ rows, sharedUsers, visibleColumns }),
+      buildExportRows({ rows: reviewRows, sharedUsers, visibleColumns }),
       delimiter
     );
     const mimeType =
@@ -556,7 +569,7 @@ export function ProjectReviewTable({
   async function exportExcel() {
     const XLSX = await import("xlsx");
     const worksheet = XLSX.utils.aoa_to_sheet(
-      buildExportRows({ rows, sharedUsers, visibleColumns })
+      buildExportRows({ rows: reviewRows, sharedUsers, visibleColumns })
     );
     const workbook = XLSX.utils.book_new();
 
@@ -618,6 +631,77 @@ export function ProjectReviewTable({
         <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
       </button>
     );
+  }
+
+  function resetReviewEditColumn(user: ReviewUser, column: string) {
+    const pairedEditColumn = editColumnName(column);
+
+    if (
+      !window.confirm(
+        `${pairedEditColumn} (${user.name}) 값을 '-'로 reset할까요?\n\n이 동작은 해당 사용자 column에만 적용되고 다른 사용자의 값은 유지됩니다.`
+      )
+    ) {
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set("projectId", projectId);
+    formData.set("targetUserId", user.id);
+    formData.set("column", pairedEditColumn);
+
+    startTransition(() => {
+      void resetUserEditColumn(formData)
+        .then((result) => {
+          setSaveMessage(
+            result.message ??
+              (result.ok
+                ? `${pairedEditColumn} (${user.name}) 값을 reset했습니다.`
+                : "Edit column을 reset하지 못했습니다.")
+          );
+
+          if (!result.ok) {
+            return;
+          }
+
+          setReviewRows((currentRows) =>
+            currentRows.map((row) => ({
+              ...row,
+              predictionEdits: row.predictionEdits.some(
+                (edit) => edit.userId === user.id
+              )
+                ? row.predictionEdits.map((edit) =>
+                    edit.userId === user.id
+                      ? {
+                          ...edit,
+                          data: {
+                            ...edit.data,
+                            [pairedEditColumn]: "",
+                          },
+                        }
+                      : edit
+                  )
+                : [
+                    ...row.predictionEdits,
+                    {
+                      userId: user.id,
+                      data: {
+                        [pairedEditColumn]: "",
+                      },
+                    },
+                  ],
+            }))
+          );
+          router.refresh();
+          window.setTimeout(() => setSaveMessage(""), 1600);
+        })
+        .catch((error: unknown) => {
+          setSaveMessage(
+            error instanceof Error
+              ? error.message
+              : "Edit column을 reset하지 못했습니다."
+          );
+        });
+    });
   }
 
   function createReviewCheckpoint(event: React.FormEvent<HTMLFormElement>) {
@@ -1104,10 +1188,22 @@ export function ProjectReviewTable({
                       key={`${column}-${user.id}`}
                       className="w-52 max-w-52 px-4 py-3 font-medium text-amber-100/75"
                     >
-                      {renderSortButton(
-                        `edit:${user.id}:${column}`,
-                        `${editColumnName(column)} (${user.name})`
-                      )}
+                      <div className="flex items-start gap-2">
+                        {renderSortButton(
+                          `edit:${user.id}:${column}`,
+                          `${editColumnName(column)} (${user.name})`
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => resetReviewEditColumn(user, column)}
+                          disabled={isPending}
+                          className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-amber-100/15 bg-amber-100/[0.04] text-amber-100/55 transition hover:border-amber-100/35 hover:bg-amber-100/[0.1] hover:text-amber-50 disabled:cursor-not-allowed disabled:opacity-45"
+                          title={`${editColumnName(column)} (${user.name}) reset`}
+                          aria-label={`${editColumnName(column)} (${user.name}) reset`}
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                        </button>
+                      </div>
                     </th>
                   ))}
                 </Fragment>
@@ -1115,7 +1211,7 @@ export function ProjectReviewTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-white/8">
-            {rows.length === 0 && (
+            {reviewRows.length === 0 && (
               <tr>
                 <td
                   colSpan={2 + Math.max(dynamicColumnCount, 1)}
@@ -1218,7 +1314,10 @@ export function ProjectReviewTable({
     </section>
     )}
     {activeReviewSection === "annotations" && (
-      <ProjectAnnotationReviewViewer rows={rows} />
+      <ProjectAnnotationReviewViewer rows={reviewRows} />
+    )}
+    {activeReviewSection === "comments" && (
+      <ProjectCommentsReviewViewer rows={reviewRows} />
     )}
     </>
   );

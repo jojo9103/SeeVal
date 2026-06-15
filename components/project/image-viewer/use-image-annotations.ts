@@ -75,5 +75,29 @@ export function useImageAnnotations({
     };
   }, [annotations, caseId, loadedCaseId, projectId]);
 
-  return { annotations, setAnnotations };
+  async function saveAnnotations() {
+    if (!caseId) {
+      return;
+    }
+
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+
+    const response = await fetch(
+      `/api/projects/${projectId}/cases/${caseId}/annotations`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ annotations }),
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error("Annotations를 저장하지 못했습니다.");
+    }
+  }
+
+  return { annotations, setAnnotations, saveAnnotations };
 }

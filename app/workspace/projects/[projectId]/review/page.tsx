@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { notFound } from "next/navigation";
 
 import { ProjectReviewTable } from "@/components/project-review-table";
-import { editColumnSource } from "@/components/project/data-utils";
+import { editColumnName, editColumnSource } from "@/components/project/data-utils";
 import type { ReviewCheckpoint } from "@/components/project-review/checkpoints";
 import { requireUser } from "@/lib/auth";
 import { formatSeoulDateTime } from "@/lib/format-date";
@@ -492,6 +492,124 @@ async function updateEditablePredictionColumns(formData: FormData) {
   }
 }
 
+async function resetProjectReviewUserEditColumn(formData: FormData) {
+  "use server";
+
+  try {
+    const user = await requireUser();
+    const projectId = String(formData.get("projectId") ?? "");
+    const targetUserId = String(formData.get("targetUserId") ?? "");
+    const column = editColumnName(String(formData.get("column") ?? ""));
+
+    if (!targetUserId || column === "Edit ") {
+      return { ok: false, message: "Reset할 사용자와 column을 선택해 주세요." };
+    }
+
+    const project = await prisma.project.findFirst({
+      where: {
+        id: projectId,
+        deletedAt: null,
+        ...(user.role === "ADMIN" ? {} : { ownerId: user.id }),
+      },
+      select: {
+        id: true,
+        ownerId: true,
+        editablePredictionColumns: true,
+        shares: {
+          where: { status: "ACCEPTED" },
+          select: {
+            sharedWithId: true,
+          },
+        },
+        cases: {
+          select: {
+            id: true,
+            predictionEdits: {
+              where: { userId: targetUserId },
+              select: {
+                data: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!project) {
+      return { ok: false, message: "Reset할 프로젝트를 찾을 수 없습니다." };
+    }
+
+    const isTargetAdmin =
+      (await prisma.user.count({
+        where: {
+          id: targetUserId,
+          role: "ADMIN",
+          status: "ACTIVE",
+        },
+      })) > 0;
+    const canTargetReview =
+      targetUserId === project.ownerId ||
+      isTargetAdmin ||
+      project.shares.some((share) => share.sharedWithId === targetUserId);
+
+    if (!canTargetReview) {
+      return { ok: false, message: "취합 대상 사용자만 reset할 수 있습니다." };
+    }
+
+    const editableColumnSet = new Set(
+      toStringArray(project.editablePredictionColumns).map(editColumnName)
+    );
+
+    if (!editableColumnSet.has(column)) {
+      return { ok: false, message: "현재 선택된 Edit column만 reset할 수 있습니다." };
+    }
+
+    await prisma.$transaction(
+      project.cases.map((projectCase) => {
+        const currentData = toStringRecord(
+          projectCase.predictionEdits[0]?.data
+        );
+
+        return prisma.projectCasePredictionEdit.upsert({
+          where: {
+            caseId_userId: {
+              caseId: projectCase.id,
+              userId: targetUserId,
+            },
+          },
+          create: {
+            caseId: projectCase.id,
+            userId: targetUserId,
+            data: {
+              ...currentData,
+              [column]: "",
+            },
+          },
+          update: {
+            data: {
+              ...currentData,
+              [column]: "",
+            },
+          },
+        });
+      })
+    );
+
+    revalidatePath(`/workspace/projects/${project.id}`);
+    revalidatePath(`/workspace/projects/${project.id}/review`);
+
+    return { ok: true, message: `${column} 값을 '-'로 reset했습니다.` };
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Edit column을 reset하지 못했습니다.",
+    };
+  }
+}
+
 export default async function ProjectReviewPage({
   params,
 }: ProjectReviewPageProps) {
@@ -535,6 +653,17 @@ export default async function ProjectReviewPage({
           imageFile: true,
           predictionEdits: true,
           annotations: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                },
+              },
+            },
+          },
+          comments: {
             include: {
               user: {
                 select: {
@@ -639,6 +768,15 @@ export default async function ProjectReviewPage({
       userEmail: annotation.user.email,
       annotations: normalizeAnnotations(annotation.annotations),
     })),
+    comments: projectCase.comments
+      .filter((comment) => comment.content.trim() !== "")
+      .map((comment) => ({
+        userId: comment.userId,
+        userName: comment.user.name,
+        userEmail: comment.user.email,
+        content: comment.content,
+        updatedAt: formatSeoulDateTime(comment.updatedAt),
+      })),
   }));
 
   return (
@@ -689,6 +827,26 @@ export default async function ProjectReviewPage({
                 ].join(":")
               )
               .join("|"),
+            rows
+              .map((row) =>
+                [
+                  row.id,
+                  row.predictionEdits
+                    .map((edit) =>
+                      [
+                        edit.userId,
+                        Object.entries(edit.data)
+                          .sort(([leftKey], [rightKey]) =>
+                            leftKey.localeCompare(rightKey)
+                          )
+                          .map(([key, value]) => `${key}:${value}`)
+                          .join(","),
+                      ].join("=")
+                    )
+                    .join("|"),
+                ].join(":")
+              )
+              .join("::"),
           ].join("::")}
           projectId={project.id}
           projectName={project.name}
@@ -701,6 +859,7 @@ export default async function ProjectReviewPage({
           createCheckpoint={createProjectReviewCheckpoint}
           restoreCheckpoint={restoreProjectReviewCheckpoint}
           deleteCheckpoint={deleteProjectReviewCheckpoint}
+          resetUserEditColumn={resetProjectReviewUserEditColumn}
         />
       </div>
     </main>

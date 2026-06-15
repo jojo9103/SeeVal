@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  Move,
   MousePointer2,
   Pentagon,
   Square,
@@ -17,6 +18,7 @@ import type { ToolMode } from "@/components/project/types";
 
 const tools = [
   { mode: "select" as const, label: "선택", icon: MousePointer2 },
+  { mode: "move" as const, label: "이동", icon: Move },
   { mode: "rectangle" as const, label: "사각형", icon: Square },
   { mode: "polygon" as const, label: "Polygon", icon: Pentagon },
 ];

@@ -46,6 +46,9 @@ const overlayColors = [
   "#c4b5fd",
 ];
 
+type AnnotationExportTarget = "sample" | "all" | null;
+type AnnotationExportMode = "byUser" | "common";
+
 function annotationName(annotation: ReviewAnnotation, index: number) {
   return (
     annotation.name ||
@@ -64,8 +67,14 @@ function annotationCount(row: AnnotationReviewRow) {
   );
 }
 
+function activeAnnotationUsers(row: AnnotationReviewRow) {
+  return row.annotations.filter(
+    (userAnnotation) => userAnnotation.annotations.length > 0
+  );
+}
+
 function userSummary(row: AnnotationReviewRow) {
-  const users = row.annotations
+  const users = activeAnnotationUsers(row)
     .map((userAnnotation) => ({
       name: userAnnotation.userName,
       count: userAnnotation.annotations.length,
@@ -82,6 +91,156 @@ function userSummary(row: AnnotationReviewRow) {
     .join(" · ");
 }
 
+function normalizeCoordinate(value: number) {
+  return Number.isFinite(value) ? Number(value.toFixed(6)) : value;
+}
+
+function annotationGeometryKey(annotation: ReviewAnnotation) {
+  if (annotation.type === "rectangle") {
+    return [
+      "rectangle",
+      normalizeCoordinate(annotation.x),
+      normalizeCoordinate(annotation.y),
+      normalizeCoordinate(annotation.width),
+      normalizeCoordinate(annotation.height),
+    ].join(":");
+  }
+
+  return [
+    "polygon",
+    ...annotation.points.map(
+      (point) =>
+        `${normalizeCoordinate(point.x)},${normalizeCoordinate(point.y)}`
+    ),
+  ].join(":");
+}
+
+function sanitizeFileName(value: string) {
+  return (
+    value
+      .trim()
+      .replace(/[\\/:*?"<>|]+/g, "-")
+      .replace(/\s+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "annotations"
+  );
+}
+
+function downloadJson(fileName: string, payload: unknown) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {
+    type: "application/json;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function buildByUserSample(row: AnnotationReviewRow) {
+  return {
+    caseId: row.id,
+    registrationNumber: row.registrationNumber,
+    imageId: row.imageId,
+    imageFileName: row.imageFileName,
+    users: activeAnnotationUsers(row).map((userAnnotation) => ({
+      userId: userAnnotation.userId,
+      userName: userAnnotation.userName,
+      userEmail: userAnnotation.userEmail,
+      annotations: userAnnotation.annotations,
+    })),
+  };
+}
+
+function buildCommonSample(row: AnnotationReviewRow) {
+  const annotatingUsers = activeAnnotationUsers(row);
+  const annotationGroups = new Map<
+    string,
+    {
+      annotation: ReviewAnnotation;
+      users: Map<
+        string,
+        {
+          userId: string;
+          userName: string;
+          userEmail: string;
+        }
+      >;
+    }
+  >();
+
+  for (const userAnnotation of annotatingUsers) {
+    const seenByUser = new Set<string>();
+
+    for (const annotation of userAnnotation.annotations) {
+      const key = annotationGeometryKey(annotation);
+
+      if (seenByUser.has(key)) {
+        continue;
+      }
+
+      seenByUser.add(key);
+
+      const group =
+        annotationGroups.get(key) ??
+        {
+          annotation,
+          users: new Map(),
+        };
+
+      group.users.set(userAnnotation.userId, {
+        userId: userAnnotation.userId,
+        userName: userAnnotation.userName,
+        userEmail: userAnnotation.userEmail,
+      });
+      annotationGroups.set(key, group);
+    }
+  }
+
+  return {
+    caseId: row.id,
+    registrationNumber: row.registrationNumber,
+    imageId: row.imageId,
+    imageFileName: row.imageFileName,
+    requiredUserCount: annotatingUsers.length,
+    usersIncluded: annotatingUsers.map((userAnnotation) => ({
+      userId: userAnnotation.userId,
+      userName: userAnnotation.userName,
+      userEmail: userAnnotation.userEmail,
+    })),
+    annotations: [...annotationGroups.values()]
+      .filter((group) => group.users.size === annotatingUsers.length)
+      .map((group) => ({
+        annotation: group.annotation,
+        matchedUsers: [...group.users.values()],
+      })),
+  };
+}
+
+function buildAnnotationExportPayload({
+  rows,
+  mode,
+  target,
+}: {
+  rows: AnnotationReviewRow[];
+  mode: AnnotationExportMode;
+  target: Exclude<AnnotationExportTarget, null>;
+}) {
+  return {
+    exportType: target,
+    mode: mode === "byUser" ? "by_user" : "common_geometry",
+    generatedAt: new Date().toISOString(),
+    samples:
+      mode === "byUser"
+        ? rows.map(buildByUserSample)
+        : rows.map(buildCommonSample),
+  };
+}
+
 export function ProjectAnnotationReviewViewer({
   rows,
 }: {
@@ -94,24 +253,113 @@ export function ProjectAnnotationReviewViewer({
   const [selectedRowId, setSelectedRowId] = useState<string | null>(
     rowsWithAnnotations[0]?.id ?? null
   );
+  const [exportTarget, setExportTarget] = useState<AnnotationExportTarget>(null);
   const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 });
   const selectedRow =
     rowsWithAnnotations.find((row) => row.id === selectedRowId) ??
     rowsWithAnnotations[0] ??
     null;
 
-  const selectedUsers =
-    selectedRow?.annotations.filter(
-      (userAnnotation) => userAnnotation.annotations.length > 0
-    ) ?? [];
+  const selectedUsers = selectedRow ? activeAnnotationUsers(selectedRow) : [];
+
+  function exportAnnotations({
+    target,
+    mode,
+  }: {
+    target: Exclude<AnnotationExportTarget, null>;
+    mode: AnnotationExportMode;
+  }) {
+    const exportRows =
+      target === "sample" && selectedRow ? [selectedRow] : rows;
+
+    if (exportRows.length === 0) {
+      return;
+    }
+
+    const payload = buildAnnotationExportPayload({
+      rows: exportRows,
+      mode,
+      target,
+    });
+    const targetName =
+      target === "sample" && selectedRow
+        ? sanitizeFileName(
+            selectedRow.imageId ??
+              selectedRow.imageFileName ??
+              selectedRow.registrationNumber
+          )
+        : "all-samples";
+    const modeName = mode === "byUser" ? "by-user" : "common";
+
+    downloadJson(`annotations-${targetName}-${modeName}.json`, payload);
+    setExportTarget(null);
+  }
 
   return (
     <section className="mt-6 rounded-2xl border border-white/12 bg-white/[0.06] p-5">
-      <div>
-        <h2 className="text-lg font-semibold">Annotation 위치 취합</h2>
-        <p className="mt-2 text-sm text-white/54">
-          환자별로 공유받은 사용자의 annotation을 이미지 위에 함께 표시합니다.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Annotations 위치 취합</h2>
+          <p className="mt-2 text-sm text-white/54">
+            환자별로 공유받은 사용자의 annotation을 이미지 위에 함께 표시합니다.
+          </p>
+        </div>
+        <div className="relative flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            disabled={!selectedRow}
+            onClick={() =>
+              setExportTarget((current) =>
+                current === "sample" ? null : "sample"
+              )
+            }
+            className="rounded-lg border border-white/12 bg-white/[0.05] px-3 py-2 text-sm font-medium text-white/78 transition hover:bg-white/[0.09] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            샘플 JSON
+          </button>
+          <button
+            type="button"
+            disabled={rows.length === 0}
+            onClick={() =>
+              setExportTarget((current) => (current === "all" ? null : "all"))
+            }
+            className="rounded-lg border border-teal-200/25 bg-teal-300/12 px-3 py-2 text-sm font-medium text-teal-100 transition hover:bg-teal-300/18 disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            전체 JSON
+          </button>
+
+          {exportTarget && (
+            <div className="absolute right-0 top-11 z-10 w-[300px] rounded-xl border border-white/12 bg-[#151515] p-3 shadow-2xl">
+              <p className="text-sm font-semibold text-white">
+                {exportTarget === "sample" ? "샘플 JSON 저장" : "전체 JSON 저장"}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-white/48">
+                사용자별 원본 데이터 또는 모든 annotator에게 공통으로 존재하는
+                geometry만 저장합니다.
+              </p>
+              <div className="mt-3 grid gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    exportAnnotations({ target: exportTarget, mode: "byUser" })
+                  }
+                  className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2 text-left text-sm text-white/78 transition hover:bg-white/[0.09]"
+                >
+                  사용자별 데이터 포함
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    exportAnnotations({ target: exportTarget, mode: "common" })
+                  }
+                  className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2 text-left text-sm text-white/78 transition hover:bg-white/[0.09]"
+                >
+                  통합 공통 annotation만
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="mt-5 grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">

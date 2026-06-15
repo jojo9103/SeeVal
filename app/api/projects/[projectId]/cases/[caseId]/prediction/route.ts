@@ -38,6 +38,16 @@ function toStringRecord(value: unknown) {
   );
 }
 
+function normalizeRequestedColumns(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map(editColumnName);
+}
+
 async function requireProjectAccess(projectId: string, caseId: string) {
   const user = await requireUser();
   const projectCase = await prisma.projectCase.findFirst({
@@ -84,6 +94,72 @@ async function requireProjectAccess(projectId: string, caseId: string) {
   };
 }
 
+function editableColumnSet(editablePredictionColumns: string[]) {
+  const acceptedEditableColumnSet = new Set(editablePredictionColumns);
+
+  for (const column of editablePredictionColumns) {
+    acceptedEditableColumnSet.add(editColumnName(column));
+  }
+
+  return acceptedEditableColumnSet;
+}
+
+function selectedEditableColumns({
+  requestedColumns,
+  acceptedEditableColumnSet,
+}: {
+  requestedColumns: string[];
+  acceptedEditableColumnSet: Set<string>;
+}) {
+  const columns =
+    requestedColumns.length > 0
+      ? requestedColumns
+      : [...acceptedEditableColumnSet].filter((column) => editColumnSource(column));
+
+  return columns.filter((column, index, array) => {
+    const editColumn = editColumnName(column);
+
+    return acceptedEditableColumnSet.has(editColumn) && array.indexOf(column) === index;
+  });
+}
+
+async function writePredictionEdit({
+  caseId,
+  userId,
+  data,
+}: {
+  caseId: string;
+  userId: string;
+  data: Record<string, string>;
+}) {
+  if (Object.keys(data).length === 0) {
+    await prisma.projectCasePredictionEdit.deleteMany({
+      where: {
+        caseId,
+        userId,
+      },
+    });
+    return;
+  }
+
+  await prisma.projectCasePredictionEdit.upsert({
+    where: {
+      caseId_userId: {
+        caseId,
+        userId,
+      },
+    },
+    create: {
+      caseId,
+      userId,
+      data,
+    },
+    update: {
+      data,
+    },
+  });
+}
+
 export async function PUT(request: Request, { params }: RouteContext) {
   try {
     const { projectId, caseId } = await params;
@@ -91,11 +167,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
     const { user, editablePredictionColumns, columnMetadata } =
       await requireProjectAccess(projectId, caseId);
     const normalizedData = normalizePredictionEdit(body.data);
-    const acceptedEditableColumnSet = new Set(editablePredictionColumns);
-
-    for (const column of editablePredictionColumns) {
-      acceptedEditableColumnSet.add(editColumnName(column));
-    }
+    const acceptedEditableColumnSet = editableColumnSet(editablePredictionColumns);
 
     const nextData = Object.fromEntries(
       Object.entries(normalizedData).filter(([key]) =>
@@ -146,22 +218,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
       ...nextData,
     };
 
-    await prisma.projectCasePredictionEdit.upsert({
-      where: {
-        caseId_userId: {
-          caseId,
-          userId: user.id,
-        },
-      },
-      create: {
-        caseId,
-        userId: user.id,
-        data: mergedData,
-      },
-      update: {
-        data: mergedData,
-      },
-    });
+    await writePredictionEdit({ caseId, userId: user.id, data: mergedData });
 
     revalidatePath(`/workspace/projects/${projectId}`);
     revalidatePath(`/workspace/projects/${projectId}/review`);
@@ -186,6 +243,79 @@ export async function PUT(request: Request, { params }: RouteContext) {
           error instanceof Error
             ? error.message
             : "모델예측 결과를 저장하지 못했습니다.",
+      },
+      { status: 400 }
+    );
+  }
+}
+
+export async function PATCH(request: Request, { params }: RouteContext) {
+  try {
+    const { projectId, caseId } = await params;
+    const body = (await request.json()) as {
+      operation?: "reset" | "delete";
+      columns?: unknown;
+    };
+    const operation = body.operation;
+
+    if (operation !== "reset" && operation !== "delete") {
+      return NextResponse.json(
+        { ok: false, message: "지원하지 않는 Edit 데이터 작업입니다." },
+        { status: 400 }
+      );
+    }
+
+    const { user, editablePredictionColumns } =
+      await requireProjectAccess(projectId, caseId);
+    const acceptedEditableColumnSet = editableColumnSet(editablePredictionColumns);
+    const targetColumns = selectedEditableColumns({
+      requestedColumns: normalizeRequestedColumns(body.columns),
+      acceptedEditableColumnSet,
+    });
+
+    if (targetColumns.length === 0) {
+      return NextResponse.json(
+        { ok: false, message: "작업할 Edit column이 없습니다." },
+        { status: 400 }
+      );
+    }
+
+    const existingEdit = await prisma.projectCasePredictionEdit.findUnique({
+      where: {
+        caseId_userId: {
+          caseId,
+          userId: user.id,
+        },
+      },
+      select: {
+        data: true,
+      },
+    });
+    const nextData = toStringRecord(existingEdit?.data);
+
+    for (const column of targetColumns) {
+      if (operation === "delete") {
+        delete nextData[column];
+        continue;
+      }
+
+      nextData[column] = "";
+    }
+
+    await writePredictionEdit({ caseId, userId: user.id, data: nextData });
+
+    revalidatePath(`/workspace/projects/${projectId}`);
+    revalidatePath(`/workspace/projects/${projectId}/review`);
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : "Edit 데이터를 변경하지 못했습니다.",
       },
       { status: 400 }
     );

@@ -52,7 +52,7 @@ export type PolygonAnnotation = {
 
 export type ImageAnnotation = RectangleAnnotation | PolygonAnnotation;
 
-export type ToolMode = "select" | "rectangle" | "polygon";
+export type ToolMode = "select" | "move" | "rectangle" | "polygon";
 
 export type DragState =
   | {
@@ -70,6 +70,12 @@ export type DragState =
       id: string;
       start: Point;
       original: RectangleAnnotation;
+    }
+  | {
+      type: "move-polygon";
+      id: string;
+      start: Point;
+      original: PolygonAnnotation;
     }
   | {
       type: "resize-rectangle";

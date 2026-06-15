@@ -69,6 +69,7 @@ model User {
   ownedProjects  Project[]       @relation("ProjectOwner")
   projectShares  ProjectShare[]  @relation("ProjectShareRecipient")
   caseAnnotations ProjectCaseAnnotation[]
+  caseComments    ProjectCaseComment[]
   predictionEdits ProjectCasePredictionEdit[]
   reviewCheckpoints ProjectReviewCheckpoint[]
   adminNotices    AdminNotice[]   @relation("AdminNoticeAuthor")
@@ -181,6 +182,7 @@ model ProjectCase {
   imageFileId        String?
   imageFile          ProjectFile? @relation(fields: [imageFileId], references: [id], onDelete: SetNull)
   annotations        ProjectCaseAnnotation[]
+  comments           ProjectCaseComment[]
   predictionEdits    ProjectCasePredictionEdit[]
 
   @@index([projectId])
@@ -191,6 +193,21 @@ model ProjectCase {
 model ProjectCaseAnnotation {
   id          String      @id @default(cuid())
   annotations Json
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  caseId      String
+  case        ProjectCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([caseId, userId])
+  @@index([userId])
+}
+
+model ProjectCaseComment {
+  id          String      @id @default(cuid())
+  content     String
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 

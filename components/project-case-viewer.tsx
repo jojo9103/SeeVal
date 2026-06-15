@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { predictionColumnsWithEdits } from "@/components/project/data-utils";
 import { AnnotatableImageViewer } from "@/components/project/image-viewer/annotatable-image-viewer";
+import { useImageAnnotations } from "@/components/project/image-viewer/use-image-annotations";
 import { PredictionDataTable } from "@/components/project/tables/prediction-data-table";
 import { SelectedCaseDataPanel } from "@/components/project/tables/selected-case-data-panel";
 import type { CaseRow, ColumnMetadata } from "@/components/project/types";
@@ -22,16 +23,20 @@ export function ProjectCaseViewer({
   columnMetadata: ColumnMetadata[];
 }) {
   const [workingCases, setWorkingCases] = useState(cases);
+  const [filteredCases, setFilteredCases] = useState(cases);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(
     cases.find((caseRow) => caseRow.imageUrl)?.id ?? cases[0]?.id ?? null
   );
   const selectedCase =
+    filteredCases.find((caseRow) => caseRow.id === selectedCaseId) ??
+    filteredCases.find((caseRow) => caseRow.imageUrl) ??
+    filteredCases[0] ??
     workingCases.find((caseRow) => caseRow.id === selectedCaseId) ??
     workingCases[0] ??
     null;
   const imageCases = useMemo(
-    () => workingCases.filter((caseRow) => caseRow.imageUrl),
-    [workingCases]
+    () => filteredCases.filter((caseRow) => caseRow.imageUrl),
+    [filteredCases]
   );
   const selectedImageIndex = selectedCase
     ? imageCases.findIndex((caseRow) => caseRow.id === selectedCase.id)
@@ -43,6 +48,52 @@ export function ProjectCaseViewer({
     () => predictionColumnsWithEdits(workingCases),
     [workingCases]
   );
+  const { annotations, setAnnotations, saveAnnotations } = useImageAnnotations({
+    caseId: selectedCase?.id ?? null,
+    projectId,
+  });
+  const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(
+    null
+  );
+  const [annotationFocusKey, setAnnotationFocusKey] = useState(0);
+
+  function updateAnnotationName(annotationId: string, name: string) {
+    setAnnotations((current) =>
+      current.map((annotation) =>
+        annotation.id === annotationId
+          ? {
+              ...annotation,
+              name,
+            }
+          : annotation
+      )
+    );
+  }
+
+  function deleteSelectedAnnotation() {
+    if (!selectedAnnotationId) {
+      return;
+    }
+
+    setAnnotations((current) =>
+      current.filter((annotation) => annotation.id !== selectedAnnotationId)
+    );
+    setSelectedAnnotationId(null);
+  }
+
+  function selectCase(caseId: string) {
+    setSelectedAnnotationId(null);
+    setSelectedCaseId(caseId);
+  }
+
+  function focusAnnotation(annotationId: string) {
+    setSelectedAnnotationId(annotationId);
+    setAnnotationFocusKey((current) => current + 1);
+  }
+
+  const updateFilteredCases = useCallback((nextFilteredCases: CaseRow[]) => {
+    setFilteredCases(nextFilteredCases);
+  }, []);
 
   function updatePredictionEdit(caseId: string, data: Record<string, string>) {
     setWorkingCases((currentCases) =>
@@ -79,8 +130,12 @@ export function ProjectCaseViewer({
       <div className="grid min-w-0 gap-6 2xl:grid-cols-[minmax(0,1fr)_480px]">
         <AnnotatableImageViewer
           key={`viewer-${selectedCase?.id ?? "empty"}`}
-          projectId={projectId}
           caseRow={selectedCase}
+          annotations={annotations}
+          setAnnotations={setAnnotations}
+          selectedAnnotationId={selectedAnnotationId}
+          setSelectedAnnotationId={setSelectedAnnotationId}
+          annotationFocusKey={annotationFocusKey}
           imageNavigation={{
             current: selectedImageIndex >= 0 ? selectedImageIndex + 1 : 0,
             total: imageCases.length,
@@ -88,12 +143,12 @@ export function ProjectCaseViewer({
             canGoNext: canMoveToNextImage,
             onPrevious: () => {
               if (canMoveToPreviousImage) {
-                setSelectedCaseId(imageCases[selectedImageIndex - 1].id);
+                selectCase(imageCases[selectedImageIndex - 1].id);
               }
             },
             onNext: () => {
               if (canMoveToNextImage) {
-                setSelectedCaseId(imageCases[selectedImageIndex + 1].id);
+                selectCase(imageCases[selectedImageIndex + 1].id);
               }
             },
           }}
@@ -107,6 +162,12 @@ export function ProjectCaseViewer({
           caseRow={selectedCase}
           columnMetadata={columnMetadata}
           onUpdatePrediction={updatePredictionEdit}
+          annotations={annotations}
+          selectedAnnotationId={selectedAnnotationId}
+          onSelectAnnotation={focusAnnotation}
+          onRenameAnnotation={updateAnnotationName}
+          onDeleteSelectedAnnotation={deleteSelectedAnnotation}
+          onSaveAnnotations={saveAnnotations}
         />
       </div>
 
@@ -119,7 +180,8 @@ export function ProjectCaseViewer({
         columnMetadata={columnMetadata}
         onUpdatePrediction={updatePredictionEdit}
         selectedCaseId={selectedCase?.id ?? null}
-        onSelectCase={(caseRow) => setSelectedCaseId(caseRow.id)}
+        onSelectCase={(caseRow) => selectCase(caseRow.id)}
+        onFilteredCasesChange={updateFilteredCases}
       />
     </div>
   );

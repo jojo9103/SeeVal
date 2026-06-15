@@ -32,6 +32,20 @@ export function AnnotationList({
         {annotations.map((annotation, index) => (
           <article
             key={annotation.id}
+            role="button"
+            tabIndex={0}
+            onClick={() => onSelect(annotation.id)}
+            onKeyDown={(event) => {
+              if (
+                event.currentTarget !== event.target ||
+                (event.key !== "Enter" && event.key !== " ")
+              ) {
+                return;
+              }
+
+              event.preventDefault();
+              onSelect(annotation.id);
+            }}
             className={`rounded-lg border p-3 text-left transition ${
               selectedAnnotationId === annotation.id
                 ? "border-teal-200/45 bg-teal-300/12"
@@ -41,7 +55,10 @@ export function AnnotationList({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => onSelect(annotation.id)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onSelect(annotation.id);
+                }}
                 className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-teal-100 transition hover:bg-white/[0.08]"
                 title="Annotation 선택"
               >
@@ -53,13 +70,15 @@ export function AnnotationList({
               </button>
               <input
                 value={
-                  annotation.name ||
+                  annotation.name ??
                   `${annotation.type === "polygon" ? "Polygon" : "Rectangle"} ${
                     index + 1
                   }`
                 }
                 aria-label="Annotation 이름"
                 onChange={(event) => onRename(annotation.id, event.target.value)}
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
                 className="min-w-0 flex-1 rounded-md border border-white/10 bg-[#111] px-2 py-1 text-sm text-white outline-none focus:border-teal-200/50"
               />
             </div>

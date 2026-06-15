@@ -1,13 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
   ChevronLeft,
   ChevronRight,
+  Filter,
+  RotateCcw,
   Save,
+  Trash2,
+  X,
 } from "lucide-react";
 
 import {
@@ -15,6 +19,7 @@ import {
   editColumnSource,
   effectivePredictionData,
   isNumericInputValue,
+  isNumericValue,
   pageSizeOptions,
   tableValue,
 } from "@/components/project/data-utils";
@@ -24,6 +29,11 @@ import type {
   ColumnMetadata,
   SortConfig,
 } from "@/components/project/types";
+
+type PredictionFilter = {
+  column: string;
+  value: string;
+};
 
 export function PredictionDataTable({
   projectId,
@@ -35,6 +45,7 @@ export function PredictionDataTable({
   onUpdatePrediction,
   selectedCaseId,
   onSelectCase,
+  onFilteredCasesChange,
 }: {
   projectId: string;
   currentUserId: string;
@@ -45,6 +56,7 @@ export function PredictionDataTable({
   onUpdatePrediction: (caseId: string, data: Record<string, string>) => void;
   selectedCaseId: string | null;
   onSelectCase: (caseRow: CaseRow) => void;
+  onFilteredCasesChange: (filteredCases: CaseRow[]) => void;
 }) {
   const [dirtyCaseIds, setDirtyCaseIds] = useState<string[]>([]);
   const [saveStatus, setSaveStatus] = useState<
@@ -59,9 +71,68 @@ export function PredictionDataTable({
     30
   );
   const [page, setPage] = useState(1);
+  const [filterInputs, setFilterInputs] = useState<Record<string, string>>({});
+  const [appliedFilters, setAppliedFilters] = useState<PredictionFilter[]>([]);
+  const activeFilters = appliedFilters.length > 0;
+
+  const metadataByColumn = useMemo(
+    () => new Map(columnMetadata.map((metadata) => [metadata.name, metadata])),
+    [columnMetadata]
+  );
+  const editableColumnSet = useMemo(
+    () =>
+      new Set(cases.flatMap((caseRow) => caseRow.editablePredictionColumns)),
+    [cases]
+  );
+  const filterableColumns = useMemo(
+    () => ["registrationNumber", "imageId", ...columns],
+    [columns]
+  );
+
+  const filterCellValue = useCallback((caseRow: CaseRow, column: string) => {
+    if (column === "registrationNumber") {
+      return caseRow.registrationNumber;
+    }
+
+    if (column === "imageId") {
+      return caseRow.imageId ?? "";
+    }
+
+    return effectivePredictionData(caseRow, currentUserId)[column] ?? "";
+  }, [currentUserId]);
+
+  const matchesFilterValue = useCallback((column: string, actualValue: string, expectedValue: string) => {
+    const normalizedActualValue = actualValue.trim();
+    const normalizedExpectedValue = expectedValue.trim();
+    const bothValuesAreNumeric =
+      isNumericValue(normalizedActualValue) &&
+      isNumericValue(normalizedExpectedValue);
+
+    if (bothValuesAreNumeric) {
+      return Number(normalizedActualValue) === Number(normalizedExpectedValue);
+    }
+
+    return normalizedActualValue === normalizedExpectedValue;
+  }, []);
+
+  const filteredCases = useMemo(() => {
+    if (!activeFilters) {
+      return cases;
+    }
+
+    return cases.filter((caseRow) =>
+      appliedFilters.every((filter) =>
+        matchesFilterValue(
+          filter.column,
+          filterCellValue(caseRow, filter.column),
+          filter.value
+        )
+      )
+    );
+  }, [activeFilters, appliedFilters, cases, filterCellValue, matchesFilterValue]);
 
   const sortedCases = useMemo(() => {
-    return [...cases].sort((left, right) => {
+    return [...filteredCases].sort((left, right) => {
       const leftValue = tableValue(
         left,
         "predictionData",
@@ -78,21 +149,20 @@ export function PredictionDataTable({
 
       return sortConfig.direction === "asc" ? result : -result;
     });
-  }, [cases, currentUserId, sortConfig]);
+  }, [currentUserId, filteredCases, sortConfig]);
 
   const pageCount = Math.max(1, Math.ceil(sortedCases.length / pageSize));
   const visibleCases = sortedCases.slice((page - 1) * pageSize, page * pageSize);
   const firstRow = sortedCases.length === 0 ? 0 : (page - 1) * pageSize + 1;
   const lastRow = Math.min(page * pageSize, sortedCases.length);
-  const metadataByColumn = useMemo(
-    () => new Map(columnMetadata.map((metadata) => [metadata.name, metadata])),
-    [columnMetadata]
+  const selectedCaseInFilter = useMemo(
+    () => !activeFilters || filteredCases.some((caseRow) => caseRow.id === selectedCaseId),
+    [activeFilters, filteredCases, selectedCaseId]
   );
-  const editableColumnSet = useMemo(
-    () =>
-      new Set(cases.flatMap((caseRow) => caseRow.editablePredictionColumns)),
-    [cases]
-  );
+
+  useEffect(() => {
+    onFilteredCasesChange(filteredCases);
+  }, [filteredCases, onFilteredCasesChange]);
 
   function columnDataType(column: string): ColumnDataType {
     const sourceColumn = editColumnSource(column);
@@ -148,12 +218,51 @@ export function PredictionDataTable({
     setPage(1);
   }
 
+  function applyPredictionFilters() {
+    const nextFilters = filterableColumns.flatMap((column) => {
+      const value = filterInputs[column]?.trim() ?? "";
+
+      return value ? [{ column, value }] : [];
+    });
+
+    setAppliedFilters(nextFilters);
+    setPage(1);
+  }
+
+  function clearPredictionFilters() {
+    setFilterInputs({});
+    setAppliedFilters([]);
+    setPage(1);
+  }
+
+  function clearPredictionFilter(column: string) {
+    setFilterInputs((current) => ({
+      ...current,
+      [column]: "",
+    }));
+    setAppliedFilters((current) =>
+      current.filter((filter) => filter.column !== column)
+    );
+    setPage(1);
+  }
+
+  function updateFilterInput(column: string, value: string) {
+    setFilterInputs((current) => ({
+      ...current,
+      [column]: value,
+    }));
+  }
+
   function markDirty(caseId: string) {
     setSaveStatus("idle");
     setSaveError("");
     setDirtyCaseIds((current) =>
       current.includes(caseId) ? current : [...current, caseId]
     );
+  }
+
+  function editableEditColumns() {
+    return columns.filter((column) => isEditableColumn(column));
   }
 
   async function savePredictionEdits() {
@@ -205,6 +314,76 @@ export function PredictionDataTable({
     }
   }
 
+  async function manageSelectedPrediction(operation: "reset" | "delete") {
+    if (!selectedCaseId) {
+      return;
+    }
+
+    const caseRow = cases.find((item) => item.id === selectedCaseId);
+
+    if (!caseRow) {
+      return;
+    }
+
+    const targetColumns = editableEditColumns();
+
+    if (targetColumns.length === 0) {
+      return;
+    }
+
+    if (
+      operation === "delete" &&
+      !window.confirm("선택된 샘플의 Edit column 값을 삭제할까요?")
+    ) {
+      return;
+    }
+
+    setSaveStatus("saving");
+    setSaveError("");
+
+    try {
+      const response = await fetch(
+        `/api/projects/${projectId}/cases/${caseRow.id}/prediction`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            operation,
+            columns: targetColumns,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const result = (await response.json().catch(() => ({}))) as {
+          message?: string;
+        };
+
+        throw new Error(result.message ?? "Edit 데이터를 변경하지 못했습니다.");
+      }
+
+      const nextData = { ...effectivePredictionData(caseRow, currentUserId) };
+
+      for (const column of targetColumns) {
+        if (operation === "delete") {
+          nextData[column] = "";
+          continue;
+        }
+
+        nextData[column] = "";
+      }
+
+      onUpdatePrediction(caseRow.id, nextData);
+      setDirtyCaseIds((current) => current.filter((caseId) => caseId !== caseRow.id));
+      setSaveStatus("saved");
+    } catch (error) {
+      setSaveError(
+        error instanceof Error ? error.message : "Edit 데이터를 변경하지 못했습니다."
+      );
+      setSaveStatus("error");
+    }
+  }
+
   useEffect(() => {
     if (saveStatus !== "saved") {
       return;
@@ -251,6 +430,18 @@ export function PredictionDataTable({
     return "수정 없음";
   }
 
+  function filterColumnLabel(column: string) {
+    if (column === "registrationNumber") {
+      return "샘플";
+    }
+
+    if (column === "imageId") {
+      return "image_id";
+    }
+
+    return column;
+  }
+
   function renderSortButton(column: string, label: string) {
     const isActive = sortConfig.key === column;
     const Icon = isActive
@@ -274,6 +465,44 @@ export function PredictionDataTable({
     );
   }
 
+  function renderHeaderCell(column: string, label: string) {
+    const isFiltered = appliedFilters.some((filter) => filter.column === column);
+    const filterInput = filterInputs[column] ?? "";
+
+    return (
+      <div className="min-w-40 space-y-2">
+        {renderSortButton(column, label)}
+        <div className="flex items-center gap-1">
+          <input
+            value={filterInput}
+            onChange={(event) => updateFilterInput(column, event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                applyPredictionFilters();
+              }
+            }}
+            placeholder="필터"
+            className={`h-8 w-full rounded-md border px-2 text-xs text-white outline-none transition placeholder:text-white/25 ${
+              isFiltered
+                ? "border-teal-200/45 bg-teal-300/10"
+                : "border-white/10 bg-[#111]/80 focus:border-teal-200/45"
+            }`}
+          />
+          {isFiltered && (
+            <button
+              type="button"
+              onClick={() => clearPredictionFilter(column)}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-white/58 transition hover:bg-white/[0.08]"
+              title={`${label} 필터 해제`}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <section className="min-w-0 rounded-2xl border border-white/12 bg-white/[0.06] p-5">
       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
@@ -285,6 +514,42 @@ export function PredictionDataTable({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={applyPredictionFilters}
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-teal-200/25 bg-teal-300/12 px-3 text-sm text-teal-50 transition hover:bg-teal-300/22"
+            title="입력된 head 필터를 모두 적용"
+          >
+            <Filter className="h-4 w-4" />
+            필터
+          </button>
+          <button
+            type="button"
+            onClick={clearPredictionFilters}
+            disabled={!activeFilters && Object.keys(filterInputs).length === 0}
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-white/12 bg-white/[0.04] px-3 text-sm text-white/70 transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-35"
+          >
+            <X className="h-4 w-4" />
+            필터 해제
+          </button>
+          <button
+            type="button"
+            onClick={() => manageSelectedPrediction("reset")}
+            disabled={!selectedCaseId || !selectedCaseInFilter || saveStatus === "saving"}
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-white/12 bg-white/[0.04] px-3 text-sm text-white/70 transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-35"
+          >
+            <RotateCcw className="h-4 w-4" />
+            선택 Reset
+          </button>
+          <button
+            type="button"
+            onClick={() => manageSelectedPrediction("delete")}
+            disabled={!selectedCaseId || !selectedCaseInFilter || saveStatus === "saving"}
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-rose-200/20 bg-rose-300/10 px-3 text-sm text-rose-50 transition hover:bg-rose-300/18 disabled:cursor-not-allowed disabled:opacity-35"
+          >
+            <Trash2 className="h-4 w-4" />
+            선택 삭제
+          </button>
           <button
             type="button"
             onClick={savePredictionEdits}
@@ -320,24 +585,53 @@ export function PredictionDataTable({
             </select>
           </label>
           <span className="w-fit rounded-full border border-white/12 bg-white/[0.06] px-3 py-1 text-sm text-white/58">
-            {cases.length} rows
+            {sortedCases.length} / {cases.length} rows
           </span>
         </div>
       </div>
+
+      {activeFilters && (
+        <div className="mt-5 flex flex-wrap items-center gap-2 rounded-xl border border-teal-200/18 bg-teal-300/[0.07] p-3">
+          <span className="text-xs text-teal-50/72">
+            {appliedFilters.length}개 필터가 적용되어 표에 남은 샘플만 수정할 수
+            있습니다.
+          </span>
+          {appliedFilters.map((filter) => (
+            <button
+              key={filter.column}
+              type="button"
+              onClick={() => clearPredictionFilter(filter.column)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-teal-200/18 bg-teal-300/10 px-2 text-xs text-teal-50 transition hover:bg-teal-300/18"
+              title={`${filterColumnLabel(filter.column)} 필터 해제`}
+            >
+              {filterColumnLabel(filter.column)} = {filter.value}
+              <X className="h-3.5 w-3.5" />
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={clearPredictionFilters}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/12 bg-white/[0.04] px-2 text-xs text-white/72 transition hover:bg-white/[0.08]"
+          >
+            <X className="h-3.5 w-3.5" />
+            전체 해제
+          </button>
+        </div>
+      )}
 
       <div className="mt-5 max-h-[620px] overflow-auto rounded-xl border border-white/10">
         <table className="w-full min-w-[1080px] text-left text-sm">
           <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#202020] text-white/50">
             <tr>
               <th className="px-4 py-3 font-medium">
-                {renderSortButton("registrationNumber", "샘플")}
+                {renderHeaderCell("registrationNumber", "샘플")}
               </th>
               <th className="px-4 py-3 font-medium">
-                {renderSortButton("imageId", "image_id")}
+                {renderHeaderCell("imageId", "image_id")}
               </th>
               {columns.map((column) => (
                 <th key={column} className="px-4 py-3 font-medium">
-                  {renderSortButton(column, column)}
+                  {renderHeaderCell(column, column)}
                 </th>
               ))}
             </tr>
