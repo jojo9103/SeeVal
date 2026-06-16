@@ -15,6 +15,16 @@ const imageIdColumn = "image_id";
 const imageFolderColumn = "image_folder";
 const editColumnPrefix = "Edit ";
 const fallbackRegistrationColumns = ["등록번호", "registrationNumber", "id"];
+const defaultMaxUploadFileBytes = 200 * 1024 * 1024;
+const defaultMaxUploadTotalBytes = 1024 * 1024 * 1024;
+const dataExtensions = new Set([
+  ".csv",
+  ".json",
+  ".jsonl",
+  ".tsv",
+  ".xls",
+  ".xlsx",
+]);
 const imageExtensions = new Set([
   ".avif",
   ".bmp",
@@ -45,6 +55,21 @@ type SavedProjectFile = {
 
 export function isUploadFile(value: FormDataEntryValue): value is File {
   return typeof value === "object" && "arrayBuffer" in value && value.size > 0;
+}
+
+function numericEnvValue(name: string, fallback: number) {
+  const rawValue = process.env[name];
+  const value = rawValue ? Number(rawValue) : NaN;
+
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function maxUploadFileBytes() {
+  return numericEnvValue("SEEV_MAX_UPLOAD_FILE_BYTES", defaultMaxUploadFileBytes);
+}
+
+function maxUploadTotalBytes() {
+  return numericEnvValue("SEEV_MAX_UPLOAD_TOTAL_BYTES", defaultMaxUploadTotalBytes);
 }
 
 function sanitizeFileName(fileName: string) {
@@ -233,7 +258,13 @@ function getFileRelativePath(file: File) {
 function isImageFile(file: File) {
   const extension = path.extname(getFileRelativePath(file)).toLowerCase();
 
-  return file.type.startsWith("image/") || imageExtensions.has(extension);
+  return imageExtensions.has(extension);
+}
+
+function isDataFile(file: File) {
+  const extension = path.extname(getFileRelativePath(file)).toLowerCase();
+
+  return dataExtensions.has(extension);
 }
 
 function isAcceptedUploadFile(
@@ -244,7 +275,26 @@ function isAcceptedUploadFile(
     return false;
   }
 
-  return kind !== "IMAGE" || isImageFile(value);
+  return kind === "IMAGE" ? isImageFile(value) : isDataFile(value);
+}
+
+function assertUploadSizeLimits(files: File[]) {
+  const maxFileSize = maxUploadFileBytes();
+  const maxTotalSize = maxUploadTotalBytes();
+  const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+  const oversizedFile = files.find((file) => file.size > maxFileSize);
+
+  if (oversizedFile) {
+    throw new Error(
+      `${oversizedFile.name} 파일이 업로드 제한(${Math.round(maxFileSize / 1024 / 1024)}MB)을 초과했습니다.`
+    );
+  }
+
+  if (totalSize > maxTotalSize) {
+    throw new Error(
+      `전체 업로드 용량이 제한(${Math.round(maxTotalSize / 1024 / 1024)}MB)을 초과했습니다.`
+    );
+  }
 }
 
 function imageMatchKey(imageFolder: string, imageId: string) {
@@ -473,14 +523,15 @@ async function saveProjectFiles({
 }) {
   const savedFiles: SavedProjectFile[] = [];
   const projectUploadDir = getProjectUploadDir(projectId);
+  const acceptedFiles = files.filter((file): file is File =>
+    isAcceptedUploadFile(file, kind)
+  );
+
+  assertUploadSizeLimits(acceptedFiles);
 
   await mkdir(projectUploadDir, { recursive: true });
 
-  for (const file of files) {
-    if (!isAcceptedUploadFile(file, kind)) {
-      continue;
-    }
-
+  for (const file of acceptedFiles) {
     const relativePath = getFileRelativePath(file);
     const safeRelativePath = relativePath
       .split("/")

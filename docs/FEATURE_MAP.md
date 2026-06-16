@@ -8,8 +8,14 @@
   - 로그인하지 않은 사용자가 `/workspace`, `/admin`, `/api/projects`, `/api/project-files`에 직접 접근하면 차단합니다.
   - 페이지 요청은 `/auth?next=...`로 보내 로그인 후 원래 접근하려던 화면으로 돌아갈 수 있게 합니다.
   - 보호 API 요청은 `401`과 `로그인이 필요합니다.` JSON 응답을 반환합니다.
-  - proxy는 세션 쿠키 payload의 `exp`를 빠르게 확인해 만료되었거나 깨진 쿠키를 삭제하고 로그인 페이지로 돌려보냅니다.
+  - proxy는 세션 쿠키 payload의 HMAC 서명과 `exp`를 빠르게 확인해 만료되었거나 깨진 쿠키를 삭제하고 로그인 페이지로 돌려보냅니다.
+  - 로그인된 사용자의 `POST`, `PUT`, `PATCH`, `DELETE` 보호 요청은 `Origin`이 현재 origin과 다르면 `403`으로 차단합니다.
   - 실제 서명/유저 상태 검증은 각 route의 `requireUser`/`requireAdmin`이 담당합니다.
+
+- `next.config.ts`
+  - 운영 기본 보안 헤더를 적용합니다.
+  - `X-Content-Type-Options=nosniff`, `X-Frame-Options=DENY`, `Referrer-Policy=same-origin`, `Permissions-Policy`, `Strict-Transport-Security`를 설정합니다.
+  - Server Action body limit은 `SEEV_SERVER_ACTION_BODY_LIMIT` 환경변수로 조정할 수 있으며 기본값은 `1gb`입니다.
 
 - `app/workspace/page.tsx`
   - 로그인한 사용자의 workspace 첫 화면입니다.
@@ -424,6 +430,11 @@
 - 컬럼 metadata validation 관련 변경은 `lib/project-column-metadata.ts`, `ProjectColumnMetadata` schema, prediction/data API를 함께 확인하세요.
 - 데이터 파싱/업로드 문제는 `lib/project-upload.ts`를 확인하세요.
 - 업로드 파일 경로/권한 제공 문제는 `lib/project-storage.ts`와 `app/api/project-files/[projectId]/[...filePath]/route.ts`를 확인하세요.
+  - 업로드 파일 제공 API는 프로젝트 권한 확인 후 파일을 반환하며 `Cache-Control=private, no-store`, `X-Content-Type-Options=nosniff`를 붙입니다.
+- 업로드 파일 보안 제한은 `lib/project-upload.ts`를 확인하세요.
+  - 데이터 파일은 `.csv`, `.tsv`, `.json`, `.jsonl`, `.xls`, `.xlsx`만 허용합니다.
+  - 이미지 파일은 명시된 raster image 확장자만 허용하며 SVG는 업로드 이미지로 받지 않습니다.
+  - `SEEV_MAX_UPLOAD_FILE_BYTES`, `SEEV_MAX_UPLOAD_TOTAL_BYTES`로 파일별/전체 업로드 용량 제한을 조정할 수 있습니다.
 - Workspace 공유/Notification 관련 변경은 `components/workspace-actions.tsx`, `app/workspace/page.tsx`, `app/admin/accounts/page.tsx`를 함께 확인하세요.
 - DB 구조 변경 시 `prisma/schema.prisma` 수정 후 migration을 만들고 `npx prisma migrate deploy`, `npm run db:generate`를 실행하세요.
 - validation 변경 시 `npm run test:validation`으로 column metadata 검증 테스트를 실행하세요.

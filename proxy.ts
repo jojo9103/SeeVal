@@ -2,26 +2,59 @@ import { NextRequest, NextResponse } from "next/server";
 
 const sessionCookieName = "seev_session";
 
-function base64UrlDecode(value: string) {
-  const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
-
-  return atob(padded);
+function base64UrlDecodeToString(value: string) {
+  return new TextDecoder().decode(base64UrlDecodeToBytes(value));
 }
 
-function hasFreshSessionCookie(token?: string) {
+function base64UrlDecodeToBytes(value: string) {
+  const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return bytes;
+}
+
+async function verifySessionSignature(payload: string, signature: string) {
+  const secret = process.env.SESSION_SECRET;
+
+  if (!secret) {
+    return false;
+  }
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["verify"]
+  );
+
+  return crypto.subtle.verify(
+    "HMAC",
+    key,
+    base64UrlDecodeToBytes(signature),
+    new TextEncoder().encode(payload)
+  );
+}
+
+async function hasFreshSessionCookie(token?: string) {
   if (!token) {
     return false;
   }
 
-  const [payload] = token.split(".");
+  const [payload, signature] = token.split(".");
 
-  if (!payload) {
+  if (!payload || !signature || !(await verifySessionSignature(payload, signature))) {
     return false;
   }
 
   try {
-    const session = JSON.parse(base64UrlDecode(payload)) as { exp?: unknown };
+    const session = JSON.parse(base64UrlDecodeToString(payload)) as { exp?: unknown };
 
     return (
       typeof session.exp === "number" &&
@@ -45,11 +78,40 @@ function isApiRequest(pathname: string) {
   return pathname.startsWith("/api/");
 }
 
-export function proxy(request: NextRequest) {
+function isUnsafeMethod(method: string) {
+  return !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
+}
+
+function hasAllowedOrigin(request: NextRequest) {
+  const origin = request.headers.get("origin");
+
+  if (!origin) {
+    return true;
+  }
+
+  return origin === request.nextUrl.origin;
+}
+
+function forbiddenResponse(request: NextRequest) {
+  if (isApiRequest(request.nextUrl.pathname)) {
+    return NextResponse.json(
+      { message: "허용되지 않은 요청 출처입니다." },
+      { status: 403 }
+    );
+  }
+
+  return new NextResponse("Forbidden", { status: 403 });
+}
+
+export async function proxy(request: NextRequest) {
   const sessionToken = request.cookies.get(sessionCookieName)?.value;
-  const hasSessionCookie = hasFreshSessionCookie(sessionToken);
+  const hasSessionCookie = await hasFreshSessionCookie(sessionToken);
 
   if (hasSessionCookie) {
+    if (isUnsafeMethod(request.method) && !hasAllowedOrigin(request)) {
+      return forbiddenResponse(request);
+    }
+
     return NextResponse.next();
   }
 
