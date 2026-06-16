@@ -17,6 +17,12 @@
   - `X-Content-Type-Options=nosniff`, `X-Frame-Options=DENY`, `Referrer-Policy=same-origin`, `Permissions-Policy`, `Strict-Transport-Security`를 설정합니다.
   - Server Action body limit은 `SEEV_SERVER_ACTION_BODY_LIMIT` 환경변수로 조정할 수 있으며 기본값은 `1gb`입니다.
 
+- `prisma.config.ts`
+  - Prisma 7에서는 datasource URL을 `schema.prisma`가 아니라 `prisma.config.ts`에서 관리합니다.
+  - Neon 배포 시 앱 런타임은 `lib/prisma.ts`에서 `DATABASE_URL` pooled connection을 사용합니다.
+  - Prisma CLI/migration은 `DIRECT_URL`이 있으면 direct connection을 우선 사용하고, 없으면 `DATABASE_URL`로 fallback합니다.
+  - Vercel에는 `DATABASE_URL`과 `DIRECT_URL`을 모두 등록하고, Build Command는 `npm run vercel-build`를 사용합니다.
+
 - `app/workspace/page.tsx`
   - 로그인한 사용자의 workspace 첫 화면입니다.
   - 프로젝트 생성, 프로젝트 목록, Notification, 평가 취합 진입 버튼을 다룹니다.
@@ -437,6 +443,7 @@
   - `SEEV_MAX_UPLOAD_FILE_BYTES`, `SEEV_MAX_UPLOAD_TOTAL_BYTES`로 파일별/전체 업로드 용량 제한을 조정할 수 있습니다.
 - Workspace 공유/Notification 관련 변경은 `components/workspace-actions.tsx`, `app/workspace/page.tsx`, `app/admin/accounts/page.tsx`를 함께 확인하세요.
 - DB 구조 변경 시 `prisma/schema.prisma` 수정 후 migration을 만들고 `npx prisma migrate deploy`, `npm run db:generate`를 실행하세요.
+- Vercel 배포 시 `npm run vercel-build`는 `prisma generate && prisma migrate deploy && next build` 순서로 실행됩니다.
 - validation 변경 시 `npm run test:validation`으로 column metadata 검증 테스트를 실행하세요.
 - 운영에서는 `npm run backup`을 cron에 등록해 DB와 업로드 파일을 함께 백업하세요.
 - 운영 배포/재시작은 `npm run build`, `npm run pm2:reload`, `pm2 save` 순서로 진행하세요.
