@@ -13,7 +13,6 @@ import {
   assertValidColumnMetadata,
   parseColumnMetadataJson,
 } from "@/lib/project-column-metadata";
-import { normalizeAnnotations } from "@/lib/project-annotations";
 import {
   buildProjectImageLookup,
   findProjectImageFileForCase,
@@ -652,28 +651,6 @@ export default async function ProjectReviewPage({
         include: {
           imageFile: true,
           predictionEdits: true,
-          annotations: {
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  name: true,
-                  email: true,
-                },
-              },
-            },
-          },
-          comments: {
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  name: true,
-                  email: true,
-                },
-              },
-            },
-          },
         },
         orderBy: { createdAt: "desc" },
       },
@@ -760,21 +737,8 @@ export default async function ProjectReviewPage({
       userId: edit.userId,
       data: toStringRecord(edit.data),
     })),
-    annotations: projectCase.annotations.map((annotation) => ({
-      userId: annotation.userId,
-      userName: annotation.user.name,
-      userEmail: annotation.user.email,
-      annotations: normalizeAnnotations(annotation.annotations),
-    })),
-    comments: projectCase.comments
-      .filter((comment) => comment.content.trim() !== "")
-      .map((comment) => ({
-        userId: comment.userId,
-        userName: comment.user.name,
-        userEmail: comment.user.email,
-        content: comment.content,
-        updatedAt: formatSeoulDateTime(comment.updatedAt),
-      })),
+    annotations: [],
+    comments: [],
   }));
 
   return (

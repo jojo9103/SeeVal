@@ -22,18 +22,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
     where: {
       id: projectId,
       deletedAt: null,
-      OR: [
-        { ownerId: user.id },
-        ...(user.role === "ADMIN" ? [{ id: projectId }] : []),
-        {
-          shares: {
-            some: {
-              sharedWithId: user.id,
-              status: "ACCEPTED",
-            },
-          },
-        },
-      ],
+      OR: [{ ownerId: user.id }, ...(user.role === "ADMIN" ? [{ id: projectId }] : [])],
     },
     include: {
       files: {

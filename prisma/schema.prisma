@@ -165,6 +165,8 @@ model ProjectFile {
   cases       ProjectCase[]
 
   @@index([projectId])
+  @@index([projectId, kind])
+  @@index([projectId, createdAt])
   @@index([kind])
 }
 
@@ -186,6 +188,9 @@ model ProjectCase {
   predictionEdits    ProjectCasePredictionEdit[]
 
   @@index([projectId])
+  @@index([projectId, createdAt])
+  @@index([projectId, imageId])
+  @@index([projectId, registrationNumber])
   @@index([registrationNumber])
   @@index([imageId, imageFolder])
 }
@@ -202,6 +207,7 @@ model ProjectCaseAnnotation {
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([caseId, userId])
+  @@index([caseId, userId])
   @@index([userId])
 }
 
@@ -217,6 +223,7 @@ model ProjectCaseComment {
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([caseId, userId])
+  @@index([caseId, userId])
   @@index([userId])
 }
 
@@ -232,6 +239,7 @@ model ProjectCasePredictionEdit {
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([caseId, userId])
+  @@index([caseId, userId])
   @@index([userId])
 }
 

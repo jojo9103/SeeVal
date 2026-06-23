@@ -64,6 +64,14 @@ type ReviewRow = {
     updatedAt: string;
   }>;
 };
+type LazyAnnotationRow = Pick<
+  ReviewRow,
+  "id" | "registrationNumber" | "imageId" | "imageUrl" | "imageFileName" | "annotations"
+>;
+type LazyCommentRow = Pick<
+  ReviewRow,
+  "id" | "registrationNumber" | "imageId" | "imageUrl" | "imageFileName" | "comments"
+>;
 
 type ReviewAnnotation =
   | {
@@ -106,6 +114,20 @@ function uniqueColumns(rows: ReviewRow[]) {
   }
 
   return [...columns];
+}
+
+function mergeReviewRows<T extends { id: string }>(
+  rows: ReviewRow[],
+  updates: T[],
+  mergeRow: (row: ReviewRow, update: T) => ReviewRow
+) {
+  const updateMap = new Map(updates.map((update) => [update.id, update]));
+
+  return rows.map((row) => {
+    const update = updateMap.get(row.id);
+
+    return update ? mergeRow(row, update) : row;
+  });
 }
 
 function cellValue(value: string | undefined | null) {
@@ -328,6 +350,12 @@ export function ProjectReviewTable({
   });
   const [activeReviewSection, setActiveReviewSection] =
     useState<ReviewSection>("results");
+  const [loadedReviewSections, setLoadedReviewSections] = useState<
+    Partial<Record<Exclude<ReviewSection, "results">, boolean>>
+  >({});
+  const [lazyReviewMessage, setLazyReviewMessage] = useState("");
+  const [loadingReviewSection, setLoadingReviewSection] =
+    useState<ReviewSection | null>(null);
   const [saveMessage, setSaveMessage] = useState("");
   const [checkpointMessage, setCheckpointMessage] = useState("");
   const [isPending, startTransition] = useTransition();
@@ -363,6 +391,85 @@ export function ProjectReviewTable({
     reviewStartIndex + paginatedRows.length,
     sortedRows.length
   );
+
+  useEffect(() => {
+    if (activeReviewSection === "results" || loadedReviewSections[activeReviewSection]) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadReviewSection() {
+      setLoadingReviewSection(activeReviewSection);
+      setLazyReviewMessage("");
+
+      try {
+        const response = await fetch(
+          `/api/projects/${projectId}/review/${activeReviewSection}`
+        );
+        const payload = (await response.json()) as {
+          rows?: LazyAnnotationRow[] | LazyCommentRow[];
+          message?: string;
+        };
+
+        if (!response.ok) {
+          throw new Error(payload.message ?? "취합 데이터를 불러오지 못했습니다.");
+        }
+
+        if (cancelled) {
+          return;
+        }
+
+        setReviewRows((currentRows) => {
+          if (activeReviewSection === "annotations") {
+            return mergeReviewRows(
+              currentRows,
+              (payload.rows ?? []) as LazyAnnotationRow[],
+              (row, update) => ({
+                ...row,
+                imageUrl: row.imageUrl ?? update.imageUrl,
+                imageFileName: row.imageFileName ?? update.imageFileName,
+                annotations: update.annotations,
+              })
+            );
+          }
+
+          return mergeReviewRows(
+            currentRows,
+            (payload.rows ?? []) as LazyCommentRow[],
+            (row, update) => ({
+              ...row,
+              imageUrl: row.imageUrl ?? update.imageUrl,
+              imageFileName: row.imageFileName ?? update.imageFileName,
+              comments: update.comments,
+            })
+          );
+        });
+        setLoadedReviewSections((current) => ({
+          ...current,
+          [activeReviewSection]: true,
+        }));
+      } catch (error) {
+        if (!cancelled) {
+          setLazyReviewMessage(
+            error instanceof Error
+              ? error.message
+              : "취합 데이터를 불러오지 못했습니다."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingReviewSection(null);
+        }
+      }
+    }
+
+    void loadReviewSection();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeReviewSection, loadedReviewSections, projectId]);
 
   function inferMetadataForColumn(column: string): ColumnMetadata {
     const values = reviewRows
@@ -1312,6 +1419,16 @@ export function ProjectReviewTable({
         </div>
       </div>
     </section>
+    )}
+    {lazyReviewMessage && activeReviewSection !== "results" && (
+      <div className="rounded-lg border border-rose-300/25 bg-rose-300/10 px-4 py-3 text-sm text-rose-50">
+        {lazyReviewMessage}
+      </div>
+    )}
+    {loadingReviewSection === activeReviewSection && activeReviewSection !== "results" && (
+      <div className="rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/58">
+        취합 데이터를 불러오는 중입니다.
+      </div>
     )}
     {activeReviewSection === "annotations" && (
       <ProjectAnnotationReviewViewer rows={reviewRows} />

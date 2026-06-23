@@ -9,7 +9,14 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   try {
     assertR2StorageEnabled();
-    await requireUser();
+    const user = await requireUser();
+
+    if (user.role !== "ADMIN") {
+      return NextResponse.json(
+        { ok: false, message: "ADMIN만 R2 진단을 확인할 수 있습니다." },
+        { status: 403 }
+      );
+    }
 
     const requestUrl = new URL(request.url);
     const origin =

@@ -279,17 +279,26 @@
   - R2 direct upload가 중간 실패했을 때 파일 기록이 없는 준비 단계 프로젝트 row를 삭제합니다.
 
 - `app/api/projects/uploads/diagnostics/route.ts`
-  - 로그인 상태에서 R2 presigned PUT URL에 `OPTIONS` preflight를 보내 CORS 응답 header를 확인합니다.
+  - ADMIN 로그인 상태에서 R2 presigned PUT URL에 `OPTIONS` preflight를 보내 CORS 응답 header를 확인합니다.
   - `/api/projects/uploads/diagnostics?origin=https://www.seeval.kr`처럼 호출해 bucket CORS 적용 여부를 JSON으로 점검합니다.
   - route는 인증과 HTTP 응답만 담당하고, 실제 진단 로직은 `lib/r2-upload-diagnostics.ts`에 있습니다.
 
 - `app/api/projects/[projectId]/image-match-diagnostics/route.ts`
   - 프로젝트의 이미지 파일 목록과 케이스의 `image_folder`/`image_id` 매칭 상태를 JSON으로 반환합니다.
   - 이미지 요청 404가 없는데 화면에 이미지가 없을 때, `imageUrl` 자체가 비어 있는지 확인하는 용도입니다.
+  - 프로젝트 소유자와 ADMIN만 접근할 수 있습니다.
 
 - `app/api/projects/[projectId]/rebuild-cases/route.ts`
   - 소유자 또는 ADMIN이 프로젝트 케이스를 다시 생성해 이미지 매칭을 재실행할 수 있는 유지보수 API입니다.
   - 이미지 lookup 로직을 고친 뒤 기존 프로젝트의 `imageFileId`를 다시 채울 때 사용합니다.
+
+- `app/api/projects/[projectId]/review/annotations/route.ts`
+  - Review의 `Annotations 위치 취합` 탭용 데이터를 lazy load합니다.
+  - Review 초기 페이지 로딩에서 annotations 전체를 제외해 첫 응답을 가볍게 유지합니다.
+
+- `app/api/projects/[projectId]/review/comments/route.ts`
+  - Review의 `Comments 취합` 탭용 데이터를 lazy load합니다.
+  - Review 초기 페이지 로딩에서 comments 전체를 제외해 첫 응답을 가볍게 유지합니다.
 
 - `app/api/project-files/[projectId]/[...filePath]/route.ts`
   - 업로드된 프로젝트 파일을 권한 확인 후 제공합니다.
@@ -499,6 +508,7 @@
   - Vercel은 서버 요청 body 제한이 있으므로 3GB 업로드는 R2 direct upload 경로로 처리해야 합니다.
 - Workspace 공유/Notification 관련 변경은 `components/workspace-actions.tsx`, `app/workspace/page.tsx`, `app/admin/accounts/page.tsx`를 함께 확인하세요.
 - DB 구조 변경 시 `prisma/schema.prisma` 수정 후 migration을 만들고 `npx prisma migrate deploy`, `npm run db:generate`를 실행하세요.
+- Review/프로젝트 조회 성능을 위해 `ProjectFile(projectId, kind)`, `ProjectFile(projectId, createdAt)`, `ProjectCase(projectId, createdAt)`, `ProjectCase(projectId, imageId)`, `ProjectCase(projectId, registrationNumber)`, 각 case-user join table의 `(caseId, userId)` index를 둡니다.
 - Vercel 배포 시 `npm run vercel-build`는 MVP 초기 배포 기준으로 `prisma generate && prisma db push --accept-data-loss && next build` 순서로 실행됩니다.
 - `vercel.json`은 Vercel Build Command를 `npm run vercel-build`로 고정해 dashboard 설정 누락으로 `npm run build`만 실행되는 문제를 줄입니다.
 - validation 변경 시 `npm run test:validation`으로 column metadata 검증 테스트를 실행하세요.
