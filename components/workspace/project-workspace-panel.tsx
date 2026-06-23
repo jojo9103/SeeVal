@@ -22,6 +22,95 @@ import {
   type WorkspaceFormAction,
 } from "@/components/workspace/types";
 
+type DirectUploadFile = {
+  fieldName: "clinicalFiles" | "predictionFiles" | "imageFiles";
+  file: File;
+  relativePath: string;
+};
+type DirectUploadTarget = {
+  fieldName: DirectUploadFile["fieldName"];
+  uploadUrl: string;
+  fileName: string;
+  relativePath: string | null;
+  storagePath: string;
+  mimeType: string;
+  size: number;
+  kind: "CLINICAL_TEXT" | "MODEL_PREDICTION" | "IMAGE";
+};
+
+const directUploadThresholdBytes = 4 * 1024 * 1024;
+
+function projectFileMetadata(target: DirectUploadTarget) {
+  return {
+    fileName: target.fileName,
+    relativePath: target.relativePath,
+    storagePath: target.storagePath,
+    mimeType: target.mimeType,
+    size: target.size,
+    kind: target.kind,
+  };
+}
+
+function fileRelativePath(file: File) {
+  return (
+    (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
+    file.name
+  );
+}
+
+function formUploadFiles(form: HTMLFormElement): DirectUploadFile[] {
+  const formData = new FormData(form);
+  const fieldNames: DirectUploadFile["fieldName"][] = [
+    "clinicalFiles",
+    "predictionFiles",
+    "imageFiles",
+  ];
+
+  return fieldNames.flatMap((fieldName) =>
+    formData
+      .getAll(fieldName)
+      .filter((entry): entry is File => entry instanceof File && entry.size > 0)
+      .map((file) => ({
+        fieldName,
+        file,
+        relativePath: fileRelativePath(file),
+      }))
+  );
+}
+
+function directUploadTotalSize(files: DirectUploadFile[]) {
+  return files.reduce((sum, file) => sum + file.file.size, 0);
+}
+
+async function readProjectUploadResponse(response: Response) {
+  try {
+    return (await response.json()) as {
+      message?: string;
+      projectId?: string;
+      uploads?: DirectUploadTarget[];
+    };
+  } catch {
+    return {
+      message:
+        response.status === 413
+          ? "Vercel은 4.5MB를 넘는 서버 업로드를 받을 수 없습니다. R2 direct upload 설정을 확인해주세요."
+          : "프로젝트 생성 중 오류가 발생했습니다.",
+    };
+  }
+}
+
+async function cancelPreparedProjectUpload(projectId?: string) {
+  if (!projectId) {
+    return;
+  }
+
+  await fetch("/api/projects/uploads/cancel", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ projectId }),
+  }).catch(() => undefined);
+}
+
 export function ProjectWorkspacePanel({
   projects,
   shareUsers,
@@ -125,10 +214,198 @@ export function ProjectWorkspacePanel({
     }
   }, [deleteState, router]);
 
-  function handleCreateSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function uploadFileDirectly({
+    file,
+    target,
+    uploadedBefore,
+    total,
+  }: {
+    file: File;
+    target: DirectUploadTarget;
+    uploadedBefore: number;
+    total: number;
+  }) {
+    await new Promise<void>((resolve, reject) => {
+      const request = new XMLHttpRequest();
+
+      uploadRequestRef.current = request;
+      request.open("PUT", target.uploadUrl);
+      request.setRequestHeader(
+        "Content-Type",
+        target.mimeType || "application/octet-stream"
+      );
+      request.upload.onprogress = (progressEvent) => {
+        const elapsedMs = Date.now() - uploadStartedAtRef.current;
+        const loaded = uploadedBefore + progressEvent.loaded;
+        const percent = total > 0 ? Math.round((loaded / total) * 100) : 0;
+
+        setUploadStatus({
+          phase: "uploading",
+          percent,
+          loaded,
+          total,
+          elapsedMs,
+          bytesPerSecond: elapsedMs > 0 ? loaded / (elapsedMs / 1000) : 0,
+        });
+      };
+      request.onload = () => {
+        if (request.status >= 200 && request.status < 300) {
+          resolve();
+          return;
+        }
+
+        reject(
+          new Error(
+            request.status === 0
+              ? "R2 업로드가 CORS 설정에 막혔습니다. R2 bucket CORS에서 Vercel 도메인의 PUT 요청을 허용해주세요."
+              : `R2 업로드 실패: ${file.name} (${request.status})`
+          )
+        );
+      };
+      request.onerror = () => {
+        reject(
+          new Error(
+            "R2 업로드 네트워크 오류가 발생했습니다. R2 CORS와 presigned URL 설정을 확인해주세요."
+          )
+        );
+      };
+      request.send(file);
+    });
+  }
+
+  async function createProjectWithDirectUpload(form: HTMLFormElement) {
+    const files = formUploadFiles(form);
+    const total = directUploadTotalSize(files);
+    const name = String(new FormData(form).get("name") ?? "");
+    const prepareResponse = await fetch("/api/projects/uploads/prepare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        files: files.map(({ fieldName, file, relativePath }) => ({
+          fieldName,
+          fileName: file.name,
+          relativePath,
+          mimeType: file.type || "application/octet-stream",
+          size: file.size,
+        })),
+      }),
+    });
+    const prepareResult = await readProjectUploadResponse(prepareResponse);
+
+    if (!prepareResponse.ok || !prepareResult.projectId || !prepareResult.uploads) {
+      throw new Error(
+        prepareResult.message ?? "R2 업로드 준비 중 오류가 발생했습니다."
+      );
+    }
+
+    const preparedProjectId = prepareResult.projectId;
+    let uploadedBefore = 0;
+
+    try {
+      for (const target of prepareResult.uploads) {
+        const source = files.find(
+          ({ fieldName, file, relativePath }) =>
+            file.name === target.fileName &&
+            relativePath === target.relativePath &&
+            fieldName === target.fieldName
+        );
+
+        if (!source) {
+          throw new Error(`${target.fileName} 업로드 파일을 찾을 수 없습니다.`);
+        }
+
+        await uploadFileDirectly({
+          file: source.file,
+          target,
+          uploadedBefore,
+          total,
+        });
+        uploadedBefore += source.file.size;
+      }
+
+      setUploadStatus((currentStatus) => ({
+        ...currentStatus,
+        phase: "processing",
+        percent: 100,
+        loaded: total,
+        total,
+        elapsedMs: Date.now() - uploadStartedAtRef.current,
+      }));
+
+      const completeResponse = await fetch("/api/projects/uploads/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: prepareResult.projectId,
+          files: prepareResult.uploads.map(projectFileMetadata),
+        }),
+      });
+      const completeResult = await readProjectUploadResponse(completeResponse);
+
+      if (!completeResponse.ok) {
+        throw new Error(
+          completeResult.message ?? "R2 업로드 완료 처리 중 오류가 발생했습니다."
+        );
+      }
+
+      return completeResult;
+    } catch (error) {
+      await cancelPreparedProjectUpload(preparedProjectId);
+      throw error;
+    }
+  }
+
+  async function handleCreateSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const files = formUploadFiles(form);
+    const shouldUseDirectUpload =
+      directUploadTotalSize(files) > directUploadThresholdBytes;
+
+    if (shouldUseDirectUpload) {
+      uploadStartedAtRef.current = Date.now();
+      setCreateState(initialState);
+      setIsUploading(true);
+      setUploadStatus({
+        ...initialUploadStatus,
+        phase: "uploading",
+      });
+
+      try {
+        const response = await createProjectWithDirectUpload(form);
+
+        setCreateState({
+          type: "success",
+          message: response.message ?? "프로젝트가 생성되었습니다.",
+        });
+        router.refresh();
+
+        window.setTimeout(() => {
+          setIsUploading(false);
+          setUploadStatus(initialUploadStatus);
+          setCreateOpen(false);
+          setCreateState(initialState);
+          uploadRequestRef.current = null;
+        }, 800);
+      } catch (error) {
+        setIsUploading(false);
+        setUploadStatus(initialUploadStatus);
+        uploadRequestRef.current = null;
+        setCreateState({
+          type: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "프로젝트 생성 중 오류가 발생했습니다.",
+        });
+      }
+
+      return;
+    }
+
     const request = new XMLHttpRequest();
 
     uploadRequestRef.current = request;

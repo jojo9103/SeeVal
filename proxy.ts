@@ -83,13 +83,33 @@ function isUnsafeMethod(method: string) {
 }
 
 function hasAllowedOrigin(request: NextRequest) {
+  const fetchSite = request.headers.get("sec-fetch-site");
+
+  if (
+    fetchSite === "same-origin" ||
+    fetchSite === "same-site" ||
+    fetchSite === "none"
+  ) {
+    return true;
+  }
+
   const origin = request.headers.get("origin");
 
   if (!origin) {
     return true;
   }
 
-  return origin === request.nextUrl.origin;
+  try {
+    const originHost = new URL(origin).host;
+    const requestHost =
+      request.headers.get("x-forwarded-host") ||
+      request.headers.get("host") ||
+      request.nextUrl.host;
+
+    return originHost === requestHost || origin === request.nextUrl.origin;
+  } catch {
+    return false;
+  }
 }
 
 function forbiddenResponse(request: NextRequest) {

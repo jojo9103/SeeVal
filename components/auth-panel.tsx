@@ -71,6 +71,22 @@ function getSafeNextPath(nextPath?: string) {
   return nextPath;
 }
 
+async function readJsonMessage(response: Response) {
+  try {
+    return (await response.json()) as {
+      message?: string;
+      redirectTo?: string;
+    };
+  } catch {
+    return {
+      message:
+        response.status >= 500
+          ? "로그인 서버 설정 또는 데이터베이스 연결을 확인해주세요."
+          : "요청 처리 중 문제가 발생했습니다.",
+    };
+  }
+}
+
 export function AuthPanel({
   initialView,
   nextPath,
@@ -158,10 +174,7 @@ export function AuthPanel({
         redirectTo: getSafeNextPath(nextPath),
       }),
     });
-    const result = (await response.json()) as {
-      message?: string;
-      redirectTo?: string;
-    };
+    const result = await readJsonMessage(response);
 
     if (response.ok && result.redirectTo) {
       window.location.href = result.redirectTo;

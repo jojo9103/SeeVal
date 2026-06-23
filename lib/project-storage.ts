@@ -5,6 +5,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const projectFileRoutePrefix = "/api/project-files/";
 const legacyPublicUploadPrefix = "/uploads/projects/";
@@ -141,6 +142,43 @@ export function getProjectObjectKey(projectId: string, relativePath: string) {
 
 export function isR2StorageEnabled() {
   return r2Config() !== null;
+}
+
+export function assertR2StorageEnabled() {
+  if (!r2Config()) {
+    throw new Error(
+      "R2 direct upload env가 설정되지 않았습니다. R2_BUCKET_NAME, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ENDPOINT 또는 R2_ACCOUNT_ID를 확인해주세요."
+    );
+  }
+}
+
+export async function createProjectFileUploadUrl({
+  projectId,
+  relativePath,
+  contentType,
+}: {
+  projectId: string;
+  relativePath: string;
+  contentType: string;
+}) {
+  const client = r2Client();
+  const config = r2Config();
+
+  if (!client || !config) {
+    throw new Error(
+      "R2 direct upload env가 설정되지 않았습니다. R2_BUCKET_NAME, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ENDPOINT 또는 R2_ACCOUNT_ID를 확인해주세요."
+    );
+  }
+
+  return getSignedUrl(
+    client,
+    new PutObjectCommand({
+      Bucket: config.bucket,
+      Key: getProjectObjectKey(projectId, relativePath),
+      ContentType: contentType,
+    }),
+    { expiresIn: 60 * 15 }
+  );
 }
 
 export async function writeProjectFile({

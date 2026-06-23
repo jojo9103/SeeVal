@@ -9,7 +9,7 @@
   - 페이지 요청은 `/auth?next=...`로 보내 로그인 후 원래 접근하려던 화면으로 돌아갈 수 있게 합니다.
   - 보호 API 요청은 `401`과 `로그인이 필요합니다.` JSON 응답을 반환합니다.
   - proxy는 세션 쿠키 payload의 HMAC 서명과 `exp`를 빠르게 확인해 만료되었거나 깨진 쿠키를 삭제하고 로그인 페이지로 돌려보냅니다.
-  - 로그인된 사용자의 `POST`, `PUT`, `PATCH`, `DELETE` 보호 요청은 `Origin`이 현재 origin과 다르면 `403`으로 차단합니다.
+  - 로그인된 사용자의 `POST`, `PUT`, `PATCH`, `DELETE` 보호 요청은 same-site Server Action/폼 요청은 허용하고, 외부 사이트에서 온 unsafe 요청은 `403`으로 차단합니다.
   - 실제 서명/유저 상태 검증은 각 route의 `requireUser`/`requireAdmin`이 담당합니다.
 
 - `next.config.ts`
@@ -22,6 +22,7 @@
   - Neon 배포 시 앱 런타임은 `lib/prisma.ts`에서 `DATABASE_URL` pooled connection을 사용합니다.
   - Prisma CLI/migration은 `DIRECT_URL`이 있으면 direct connection을 우선 사용하고, 없으면 `DATABASE_URL`로 fallback합니다.
   - Vercel에는 `DATABASE_URL`과 `DIRECT_URL`을 모두 등록하고, Build Command는 `npm run vercel-build`를 사용합니다.
+  - Vercel 로그인에는 세션 서명용 `SESSION_SECRET`도 반드시 등록해야 하며, Neon DB에는 `ACTIVE` 상태의 `User` row와 `passwordHash`가 있어야 합니다.
 
 - `app/workspace/page.tsx`
   - 로그인한 사용자의 workspace 첫 화면입니다.
@@ -228,6 +229,7 @@
 
 - `lib/auth.ts`
   - `seev_session` 쿠키 생성/검증/삭제와 `requireUser`, `requireAdmin` 인증 guard를 담당합니다.
+  - 세션 쿠키는 `SESSION_SECRET`으로 HMAC 서명하며, 운영 배포에서는 같은 값을 Vercel Environment Variable에 등록해야 로그인 후 세션 유지가 됩니다.
   - 로그아웃 시 세션 쿠키는 생성 때와 같은 `path`, `sameSite`, `secure`, `httpOnly` 옵션에 `maxAge=0`, 과거 `expires`를 함께 지정해 삭제합니다.
   - malformed session token은 JSON parse 실패 시 로그인되지 않은 상태로 처리합니다.
   - 세션 만료 시 보호 페이지 접근은 proxy에서 `/auth?next=...`로 이동하고, 서버 guard는 최종적으로 인증 상태를 다시 확인합니다.
@@ -238,6 +240,7 @@
   - 프로젝트 생성/업데이트 시 업로드 파일 저장과 파싱을 담당합니다.
   - CSV/XLSX/XLS 임상데이터와 모델예측 데이터를 파싱합니다.
   - 이미지 폴더 업로드 시 비이미지 파일은 제외합니다.
+  - Vercel 배포에서 4MB를 넘는 프로젝트 생성 업로드는 R2 presigned URL direct upload 경로를 사용하고, 완료 후 서버가 DB 파일 기록과 케이스 재구성을 처리합니다.
   - 임상데이터와 모델예측 데이터는 공통 컬럼 중 값이 일치하고 충돌하지 않는 row를 기준으로 연결합니다.
   - 공통 컬럼이 `image_id`인 경우 `YWDIF064`와 `YWDIF064_C3`처럼 샘플 ID 뒤에 이미지/염색 suffix가 붙은 예측 row도 같은 임상 row로 연결합니다.
   - `image_folder`와 `image_id`를 기반으로 업로드 이미지와 prediction row를 연결합니다. `image_folder`는 이미지 폴더/파일 매칭에 쓰입니다.
@@ -248,6 +251,18 @@
 - `lib/project-storage.ts`
   - 업로드 파일 저장 경로와 `/api/project-files/...` 파일 URL 생성을 담당합니다.
   - 기본 저장소는 `.seeval-uploads/projects`이며 운영에서는 `SEEV_UPLOAD_DIR`로 코드 폴더 밖 경로를 지정할 수 있습니다.
+  - R2 direct upload를 위해 15분짜리 presigned PUT URL을 생성합니다.
+
+- `app/api/projects/uploads/prepare/route.ts`
+  - 로그인 사용자에게 프로젝트 생성용 R2 presigned PUT URL 목록을 발급합니다.
+  - 파일 확장자와 업로드 용량 제한을 서버에서 먼저 검증한 뒤 프로젝트 row를 생성합니다.
+
+- `app/api/projects/uploads/complete/route.ts`
+  - R2 direct upload 완료 후 파일 metadata를 DB에 저장하고 `rebuildProjectCases`를 실행합니다.
+  - 케이스 재구성 실패 시 생성 중인 프로젝트 row를 삭제해 빈 프로젝트가 남지 않도록 합니다.
+
+- `app/api/projects/uploads/cancel/route.ts`
+  - R2 direct upload가 중간 실패했을 때 파일 기록이 없는 준비 단계 프로젝트 row를 삭제합니다.
 
 - `app/api/project-files/[projectId]/[...filePath]/route.ts`
   - 업로드된 프로젝트 파일을 권한 확인 후 제공합니다.
@@ -440,6 +455,8 @@
   - `R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT` 또는 `R2_ACCOUNT_ID`가 모두 있으면 Cloudflare R2를 사용합니다.
   - R2 env가 없으면 기존 로컬 filesystem 저장소(`.seeval-uploads/projects` 또는 `SEEV_UPLOAD_DIR`)를 fallback으로 사용합니다.
   - DB의 `ProjectFile.storagePath`는 기존 `/api/project-files/{projectId}/...` 라우트 형식을 유지하며, route 내부에서 권한 확인 후 R2/local storage에서 파일을 읽습니다.
+  - Vercel은 Function request body가 4.5MB로 제한되므로 큰 이미지 폴더는 R2 direct upload가 필요합니다.
+  - R2 bucket CORS에서 배포 도메인의 `PUT`, `GET`, `HEAD` 요청과 `Content-Type` header를 허용해야 브라우저 direct upload가 성공합니다.
 - 업로드 파일 보안 제한은 `lib/project-upload.ts`를 확인하세요.
   - 데이터 파일은 `.csv`, `.tsv`, `.json`, `.jsonl`, `.xls`, `.xlsx`만 허용합니다.
   - 이미지 파일은 명시된 raster image 확장자만 허용하며 SVG는 업로드 이미지로 받지 않습니다.

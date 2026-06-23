@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 import { prisma } from "@/lib/prisma";
 import { assertRowsWithColumnMetadata } from "@/lib/project-column-metadata";
 import {
+  createProjectFileUploadUrl,
   getProjectFileUrl,
   readStoredProjectFile,
   writeProjectFile,
@@ -50,6 +51,17 @@ type SavedProjectFile = {
   size: number;
   kind: ProjectFileKind;
 };
+type UploadFileDescriptor = {
+  fieldName: string;
+  fileName: string;
+  relativePath: string;
+  mimeType: string;
+  size: number;
+};
+type DirectUploadTarget = SavedProjectFile & {
+  fieldName: string;
+  uploadUrl: string;
+};
 
 export function isUploadFile(value: FormDataEntryValue): value is File {
   return typeof value === "object" && "arrayBuffer" in value && value.size > 0;
@@ -70,7 +82,7 @@ function maxUploadTotalBytes() {
   return numericEnvValue("SEEV_MAX_UPLOAD_TOTAL_BYTES", defaultMaxUploadTotalBytes);
 }
 
-function sanitizeFileName(fileName: string) {
+export function sanitizeProjectFileName(fileName: string) {
   const extension = path.extname(fileName);
   const baseName = path
     .basename(fileName, extension)
@@ -79,6 +91,13 @@ function sanitizeFileName(fileName: string) {
     .slice(0, 80);
 
   return `${baseName || "file"}${extension}`;
+}
+
+function sanitizeProjectRelativePath(relativePath: string) {
+  return relativePath
+    .split("/")
+    .map((segment) => sanitizeProjectFileName(segment))
+    .join("/");
 }
 
 function normalizeCell(value: unknown) {
@@ -264,6 +283,17 @@ function isDataFile(file: File) {
   return dataExtensions.has(extension);
 }
 
+function isAcceptedDescriptor(
+  descriptor: UploadFileDescriptor,
+  kind: ProjectFileKind
+) {
+  const extension = path.extname(descriptor.relativePath).toLowerCase();
+
+  return kind === "IMAGE"
+    ? imageExtensions.has(extension)
+    : dataExtensions.has(extension);
+}
+
 function isAcceptedUploadFile(
   value: FormDataEntryValue,
   kind: ProjectFileKind
@@ -284,6 +314,25 @@ function assertUploadSizeLimits(files: File[]) {
   if (oversizedFile) {
     throw new Error(
       `${oversizedFile.name} 파일이 업로드 제한(${Math.round(maxFileSize / 1024 / 1024)}MB)을 초과했습니다.`
+    );
+  }
+
+  if (totalSize > maxTotalSize) {
+    throw new Error(
+      `전체 업로드 용량이 제한(${Math.round(maxTotalSize / 1024 / 1024)}MB)을 초과했습니다.`
+    );
+  }
+}
+
+function assertUploadDescriptorSizeLimits(files: UploadFileDescriptor[]) {
+  const maxFileSize = maxUploadFileBytes();
+  const maxTotalSize = maxUploadTotalBytes();
+  const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+  const oversizedFile = files.find((file) => file.size > maxFileSize);
+
+  if (oversizedFile) {
+    throw new Error(
+      `${oversizedFile.fileName} 파일이 업로드 제한(${Math.round(maxFileSize / 1024 / 1024)}MB)을 초과했습니다.`
     );
   }
 
@@ -527,10 +576,7 @@ async function saveProjectFiles({
 
   for (const file of acceptedFiles) {
     const relativePath = getFileRelativePath(file);
-    const safeRelativePath = relativePath
-      .split("/")
-      .map((segment) => sanitizeFileName(segment))
-      .join("/");
+    const safeRelativePath = sanitizeProjectRelativePath(relativePath);
     const arrayBuffer = await file.arrayBuffer();
     const fileBuffer = Buffer.from(arrayBuffer);
 
@@ -552,6 +598,156 @@ async function saveProjectFiles({
   }
 
   return savedFiles;
+}
+
+function projectFileKindForFieldName(fieldName: string): ProjectFileKind | null {
+  if (fieldName === "clinicalFiles") {
+    return "CLINICAL_TEXT";
+  }
+
+  if (fieldName === "predictionFiles") {
+    return "MODEL_PREDICTION";
+  }
+
+  if (fieldName === "imageFiles") {
+    return "IMAGE";
+  }
+
+  return null;
+}
+
+export async function prepareDirectProjectUpload({
+  ownerId,
+  name,
+  files,
+}: {
+  ownerId: string;
+  name: string;
+  files: UploadFileDescriptor[];
+}) {
+  const trimmedName = name.trim();
+  const acceptedFiles = files
+    .map((file) => ({
+      ...file,
+      kind: projectFileKindForFieldName(file.fieldName),
+    }))
+    .filter(
+      (
+        file
+      ): file is UploadFileDescriptor & {
+        kind: ProjectFileKind;
+      } => {
+        if (file.kind === null) {
+          return false;
+        }
+
+        return isAcceptedDescriptor(file, file.kind);
+      }
+    );
+
+  if (!trimmedName) {
+    throw new Error("프로젝트 이름을 입력해주세요.");
+  }
+
+  if (acceptedFiles.length === 0) {
+    throw new Error(
+      "임상데이터, 모델예측 데이터, 이미지 파일 중 하나 이상 업로드해주세요."
+    );
+  }
+
+  assertUploadDescriptorSizeLimits(acceptedFiles);
+
+  const project = await prisma.project.create({
+    data: {
+      name: trimmedName,
+      ownerId,
+    },
+  });
+
+  const uploadTargets: DirectUploadTarget[] = [];
+
+  for (const file of acceptedFiles) {
+    const safeRelativePath = sanitizeProjectRelativePath(file.relativePath);
+    const mimeType = file.mimeType || "application/octet-stream";
+
+    uploadTargets.push({
+      fieldName: file.fieldName,
+      fileName: file.fileName,
+      relativePath: file.relativePath,
+      storagePath: getProjectFileUrl(project.id, safeRelativePath),
+      mimeType,
+      size: file.size,
+      kind: file.kind,
+      uploadUrl: await createProjectFileUploadUrl({
+        projectId: project.id,
+        relativePath: safeRelativePath,
+        contentType: mimeType,
+      }),
+    });
+  }
+
+  return {
+    project,
+    uploadTargets,
+  };
+}
+
+export async function completeDirectProjectUpload({
+  ownerId,
+  projectId,
+  files,
+}: {
+  ownerId: string;
+  projectId: string;
+  files: SavedProjectFile[];
+}) {
+  const project = await prisma.project.findFirst({
+    where: {
+      id: projectId,
+      ownerId,
+      deletedAt: null,
+    },
+  });
+
+  if (!project) {
+    throw new Error("프로젝트 업로드를 완료할 권한이 없습니다.");
+  }
+
+  if (files.length === 0) {
+    throw new Error("완료할 업로드 파일이 없습니다.");
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.projectFile.deleteMany({
+        where: { projectId },
+      });
+
+      for (const file of files) {
+        await tx.projectFile.create({
+          data: {
+            fileName: file.fileName,
+            relativePath: file.relativePath,
+            storagePath: file.storagePath,
+            mimeType: file.mimeType,
+            size: file.size,
+            kind: file.kind,
+            projectId,
+          },
+        });
+      }
+
+      await rebuildProjectCases(projectId, tx);
+    });
+  } catch (error) {
+    await prisma.project.delete({
+      where: { id: projectId },
+    }).catch(() => undefined);
+
+    throw error;
+  }
+
+  return project;
 }
 
 export async function rebuildProjectCases(
