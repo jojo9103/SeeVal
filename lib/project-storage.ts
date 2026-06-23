@@ -10,6 +10,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 const projectFileRoutePrefix = "/api/project-files/";
 const legacyPublicUploadPrefix = "/uploads/projects/";
 const storageDriverEnvValues = ["auto", "local", "r2"] as const;
+const defaultSignedReadUrlExpiresSeconds = 60 * 15;
 
 type StorageDriver = (typeof storageDriverEnvValues)[number];
 
@@ -105,6 +106,15 @@ function r2Client() {
       secretAccessKey: config.secretAccessKey,
     },
   });
+}
+
+function signedReadUrlExpiresSeconds() {
+  const rawValue = process.env.SEEV_R2_SIGNED_READ_URL_EXPIRES_SECONDS;
+  const value = rawValue ? Number(rawValue) : NaN;
+
+  return Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : defaultSignedReadUrlExpiresSeconds;
 }
 
 function encodePathSegments(filePath: string) {
@@ -204,6 +214,30 @@ export async function createProjectFileUploadUrl({
       Key: getProjectObjectKey(projectId, relativePath),
     }),
     { expiresIn: 60 * 15 }
+  );
+}
+
+export async function createProjectFileReadUrl({
+  projectId,
+  relativePath,
+}: {
+  projectId: string;
+  relativePath: string;
+}) {
+  const client = r2Client();
+  const config = r2Config();
+
+  if (!client || !config) {
+    return null;
+  }
+
+  return getSignedUrl(
+    client,
+    new GetObjectCommand({
+      Bucket: config.bucket,
+      Key: getProjectObjectKey(projectId, relativePath),
+    }),
+    { expiresIn: signedReadUrlExpiresSeconds() }
   );
 }
 

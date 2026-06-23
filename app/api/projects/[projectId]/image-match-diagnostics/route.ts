@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import {
   buildProjectImageLookup,
-  findProjectImageFile,
+  findProjectImageFileForCase,
 } from "@/lib/project-images";
 import { prisma } from "@/lib/prisma";
 
@@ -62,14 +62,12 @@ export async function GET(_request: Request, { params }: RouteContext) {
   }));
   const imageLookup = buildProjectImageLookup(imageFiles);
   const caseMatches = project.cases.map((projectCase) => {
-    const matchedFile =
-      projectCase.imageFolder && projectCase.imageId
-        ? findProjectImageFile(
-            imageLookup,
-            projectCase.imageFolder,
-            projectCase.imageId
-          )
-        : null;
+    const matchedFile = findProjectImageFileForCase({
+      imageLookup,
+      imageFolder: projectCase.imageFolder,
+      imageId: projectCase.imageId,
+      registrationNumber: projectCase.registrationNumber,
+    });
 
     return {
       caseId: projectCase.id,

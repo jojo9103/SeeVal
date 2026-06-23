@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { assertRowsWithColumnMetadata } from "@/lib/project-column-metadata";
 import {
   buildProjectImageLookup,
-  findProjectImageFile,
+  findProjectImageFileForCase,
   normalizeImagePart,
 } from "@/lib/project-images";
 import {
@@ -756,10 +756,12 @@ export async function rebuildProjectCases(
       );
       const imageId = predictionRow[imageIdColumn] || null;
       const imageFolder = predictionRow[imageFolderColumn] || null;
-      const imageFile =
-        imageId && imageFolder
-          ? findProjectImageFile(imageLookup, imageFolder, imageId)
-          : null;
+      const imageFile = findProjectImageFileForCase({
+        imageLookup,
+        imageFolder,
+        imageId,
+        registrationNumber,
+      });
 
       return {
         projectId,

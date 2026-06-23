@@ -16,7 +16,7 @@ import {
 import { normalizeAnnotations } from "@/lib/project-annotations";
 import {
   buildProjectImageLookup,
-  findProjectImageFile,
+  findProjectImageFileForCase,
 } from "@/lib/project-images";
 import { prisma } from "@/lib/prisma";
 
@@ -739,23 +739,21 @@ export default async function ProjectReviewPage({
     imageId: projectCase.imageId,
     imageUrl:
       projectCase.imageFile?.storagePath ??
-      (projectCase.imageFolder && projectCase.imageId
-        ? findProjectImageFile(
-            imageLookup,
-            projectCase.imageFolder,
-            projectCase.imageId
-          )?.storagePath
-        : null) ??
+      findProjectImageFileForCase({
+        imageLookup,
+        imageFolder: projectCase.imageFolder,
+        imageId: projectCase.imageId,
+        registrationNumber: projectCase.registrationNumber,
+      })?.storagePath ??
       null,
     imageFileName:
       projectCase.imageFile?.fileName ??
-      (projectCase.imageFolder && projectCase.imageId
-        ? findProjectImageFile(
-            imageLookup,
-            projectCase.imageFolder,
-            projectCase.imageId
-          )?.fileName
-        : null) ??
+      findProjectImageFileForCase({
+        imageLookup,
+        imageFolder: projectCase.imageFolder,
+        imageId: projectCase.imageId,
+        registrationNumber: projectCase.registrationNumber,
+      })?.fileName ??
       null,
     predictionData: toStringRecord(projectCase.predictionData),
     predictionEdits: projectCase.predictionEdits.map((edit) => ({

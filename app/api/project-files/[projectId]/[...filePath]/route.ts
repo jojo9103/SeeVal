@@ -3,7 +3,10 @@ import { NextResponse } from "next/server";
 
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { readProjectFile } from "@/lib/project-storage";
+import {
+  createProjectFileReadUrl,
+  readProjectFile,
+} from "@/lib/project-storage";
 
 type RouteContext = {
   params: Promise<{
@@ -68,6 +71,21 @@ export async function GET(_request: Request, { params }: RouteContext) {
 
   try {
     const relativePath = filePath.join("/");
+    const signedReadUrl = await createProjectFileReadUrl({
+      projectId,
+      relativePath,
+    });
+
+    if (signedReadUrl) {
+      return NextResponse.redirect(signedReadUrl, {
+        status: 307,
+        headers: {
+          "Cache-Control": "private, max-age=60",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    }
+
     const file = await readProjectFile(projectId, relativePath);
     const contentType =
       mimeTypes.get(path.extname(relativePath).toLowerCase()) ??

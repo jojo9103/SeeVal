@@ -21,6 +21,31 @@ function imageMatchKey(imageFolder: string, imageId: string) {
   return `${normalizeImagePart(imageFolder)}::${normalizeImagePart(imageId)}`;
 }
 
+function stainSuffix(value: string | null | undefined) {
+  const normalizedValue = normalizeImagePart(value ?? "");
+  const match = normalizedValue.match(/(?:^|[_\-\s])(c3|iga|igg|igm)$/i);
+
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+function folderMatches(folder: string, candidate: string) {
+  const normalizedFolder = normalizeImagePart(folder);
+  const normalizedCandidate = normalizeImagePart(candidate);
+
+  return (
+    normalizedFolder === normalizedCandidate ||
+    normalizedFolder.startsWith(`${normalizedCandidate}_`) ||
+    normalizedFolder.startsWith(`${normalizedCandidate}-`) ||
+    normalizedFolder.includes(`/${normalizedCandidate}_`) ||
+    normalizedFolder.includes(`/${normalizedCandidate}-`) ||
+    normalizedFolder.endsWith(`/${normalizedCandidate}`)
+  );
+}
+
+function imageNameMatchesSuffix(imageName: string, suffix: string) {
+  return normalizeImagePart(imageName).match(new RegExp(`(?:^|[_\\-\\s])${suffix}$`, "i"));
+}
+
 function safeDecodePath(value: string) {
   try {
     return decodeURIComponent(value);
@@ -101,5 +126,40 @@ export function findProjectImageFile<T extends ProjectImageFile>(
         key.split("::")[0].endsWith(normalizedFolder)
     )?.[1] ??
     null
+  );
+}
+
+export function findProjectImageFileForCase<T extends ProjectImageFile>({
+  imageLookup,
+  imageFolder,
+  imageId,
+  registrationNumber,
+}: {
+  imageLookup: Map<string, T>;
+  imageFolder: string | null | undefined;
+  imageId: string | null | undefined;
+  registrationNumber: string | null | undefined;
+}) {
+  if (imageFolder && imageId) {
+    const matchedFile = findProjectImageFile(imageLookup, imageFolder, imageId);
+
+    if (matchedFile) {
+      return matchedFile;
+    }
+  }
+
+  const fallbackFolder = imageFolder || registrationNumber;
+  const suffix = stainSuffix(imageId);
+
+  if (!fallbackFolder || !suffix) {
+    return null;
+  }
+
+  return (
+    [...imageLookup.entries()].find(([key]) => {
+      const [folder = "", imageName = ""] = key.split("::");
+
+      return folderMatches(folder, fallbackFolder) && imageNameMatchesSuffix(imageName, suffix);
+    })?.[1] ?? null
   );
 }
