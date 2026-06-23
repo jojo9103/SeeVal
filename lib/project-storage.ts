@@ -180,7 +180,6 @@ export function assertR2StorageEnabled() {
 export async function createProjectFileUploadUrl({
   projectId,
   relativePath,
-  contentType,
 }: {
   projectId: string;
   relativePath: string;
@@ -200,7 +199,6 @@ export async function createProjectFileUploadUrl({
     new PutObjectCommand({
       Bucket: config.bucket,
       Key: getProjectObjectKey(projectId, relativePath),
-      ContentType: contentType,
     }),
     { expiresIn: 60 * 15 }
   );

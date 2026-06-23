@@ -232,10 +232,6 @@ export function ProjectWorkspacePanel({
 
       uploadRequestRef.current = request;
       request.open("PUT", target.uploadUrl);
-      request.setRequestHeader(
-        "Content-Type",
-        target.mimeType || "application/octet-stream"
-      );
       request.upload.onprogress = (progressEvent) => {
         const elapsedMs = Date.now() - uploadStartedAtRef.current;
         const loaded = uploadedBefore + progressEvent.loaded;
