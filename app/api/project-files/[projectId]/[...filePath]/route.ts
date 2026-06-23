@@ -80,7 +80,13 @@ export async function GET(_request: Request, { params }: RouteContext) {
         "X-Content-Type-Options": "nosniff",
       },
     });
-  } catch {
+  } catch (error) {
+    console.error("Project file read failed", {
+      projectId,
+      relativePath: filePath.join("/"),
+      error,
+    });
+
     return NextResponse.json(
       { message: "파일을 찾을 수 없습니다." },
       { status: 404 }

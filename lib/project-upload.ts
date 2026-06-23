@@ -4,6 +4,11 @@ import * as XLSX from "xlsx";
 import { prisma } from "@/lib/prisma";
 import { assertRowsWithColumnMetadata } from "@/lib/project-column-metadata";
 import {
+  buildProjectImageLookup,
+  findProjectImageFile,
+  normalizeImagePart,
+} from "@/lib/project-images";
+import {
   createProjectFileUploadUrl,
   getProjectFileUrl,
   readStoredProjectFile,
@@ -345,67 +350,6 @@ function assertUploadDescriptorSizeLimits(files: UploadFileDescriptor[]) {
       `전체 업로드 용량이 제한(${Math.round(maxTotalSize / 1024 / 1024)}MB)을 초과했습니다.`
     );
   }
-}
-
-function imageMatchKey(imageFolder: string, imageId: string) {
-  return `${normalizeImagePart(imageFolder)}::${normalizeImagePart(imageId)}`;
-}
-
-function normalizeImagePart(value: string) {
-  return value
-    .normalize("NFC")
-    .trim()
-    .replace(/\\/g, "/")
-    .replace(/^\/+|\/+$/g, "")
-    .toLowerCase();
-}
-
-function buildImageLookup(files: ReadableProjectFile[]) {
-  const lookup = new Map<string, ReadableProjectFile>();
-
-  for (const file of files.filter((file) =>
-    imageExtensions.has(path.extname(file.fileName).toLowerCase())
-  )) {
-    const relativePath = (file.relativePath ?? file.fileName)
-      .normalize("NFC")
-      .replace(/\\/g, "/");
-    const directoryName = path.dirname(relativePath).replace(/\\/g, "/");
-    const folderName = path.basename(directoryName);
-    const imageName = path.basename(file.fileName, path.extname(file.fileName));
-    const imageNames = [imageName, file.fileName];
-    const folderNames = [
-      folderName,
-      directoryName,
-      ...directoryName.split("/").filter(Boolean),
-    ];
-
-    for (const folder of folderNames) {
-      for (const name of imageNames) {
-        lookup.set(imageMatchKey(folder, name), file);
-      }
-    }
-  }
-
-  return lookup;
-}
-
-function findImageFile(
-  imageLookup: Map<string, ReadableProjectFile>,
-  imageFolder: string,
-  imageId: string
-) {
-  const normalizedFolder = normalizeImagePart(imageFolder);
-  const normalizedImageId = normalizeImagePart(imageId);
-
-  return (
-    imageLookup.get(imageMatchKey(normalizedFolder, normalizedImageId)) ??
-    [...imageLookup.entries()].find(
-      ([key]) =>
-        key.endsWith(`::${normalizedImageId}`) &&
-        key.split("::")[0].endsWith(normalizedFolder)
-    )?.[1] ??
-    null
-  );
 }
 
 function rowColumns(rows: DataRow[]) {
@@ -799,7 +743,7 @@ export async function rebuildProjectCases(
   });
 
   const commonColumns = sharedColumns(clinicalRows, predictionRows);
-  const imageLookup = buildImageLookup(
+  const imageLookup = buildProjectImageLookup(
     files.filter((file) => file.kind === "IMAGE")
   );
   const cases = predictionRows
@@ -814,7 +758,7 @@ export async function rebuildProjectCases(
       const imageFolder = predictionRow[imageFolderColumn] || null;
       const imageFile =
         imageId && imageFolder
-          ? findImageFile(imageLookup, imageFolder, imageId)
+          ? findProjectImageFile(imageLookup, imageFolder, imageId)
           : null;
 
       return {

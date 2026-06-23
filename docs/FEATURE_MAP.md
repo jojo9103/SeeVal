@@ -257,6 +257,10 @@
   - R2 client는 `forcePathStyle`을 사용합니다. `R2_ENDPOINT`는 bucket 이름을 제외한 account endpoint(`https://<account-id>.r2.cloudflarestorage.com`)를 넣습니다.
   - R2 direct upload를 위해 15분짜리 presigned PUT URL을 생성합니다. 브라우저/R2 signature mismatch를 줄이기 위해 presigned URL에는 `Content-Type`을 서명하지 않고, AWS SDK의 불필요한 checksum 계산도 required일 때만 사용합니다.
 
+- `lib/project-images.ts`
+  - 프로젝트 이미지 파일 lookup과 `image_folder`/`image_id` 매칭을 담당합니다.
+  - 원본 `relativePath`, 실제 저장 URL의 path, 파일명을 모두 후보로 사용해 R2 direct upload의 sanitized 저장 경로와 raw prediction 경로 차이로 인한 이미지 매칭 실패를 줄입니다.
+
 - `lib/r2-upload-diagnostics.ts`
   - R2 presigned URL을 만들고 `OPTIONS` preflight 요청을 보내 CORS 응답을 구조화합니다.
   - `fetch failed`처럼 응답 이전에 실패한 경우 `uploadHost`, `uploadPathPrefix`, error cause를 반환해 Vercel env/R2 endpoint 문제를 좁힙니다.
@@ -280,6 +284,7 @@
 - `app/api/project-files/[projectId]/[...filePath]/route.ts`
   - 업로드된 프로젝트 파일을 권한 확인 후 제공합니다.
   - 삭제된 프로젝트(`deletedAt` 존재)는 파일 접근이 차단됩니다.
+  - R2/local 파일 읽기 실패 시 Vercel/서버 로그에 projectId, relativePath, error를 남깁니다.
 
 - `components/project-data-upload.tsx`
   - 기존 프로젝트에 임상데이터/모델예측/이미지를 추가 또는 교체하는 업로드 UI입니다.

@@ -1,12 +1,14 @@
 import path from "path";
 
+const projectFileRoutePrefix = "/api/project-files/";
+
 export type ProjectImageFile = {
   fileName: string;
   relativePath: string | null;
   storagePath: string;
 };
 
-function normalizeImagePart(value: string) {
+export function normalizeImagePart(value: string) {
   return value
     .normalize("NFC")
     .trim()
@@ -19,27 +21,66 @@ function imageMatchKey(imageFolder: string, imageId: string) {
   return `${normalizeImagePart(imageFolder)}::${normalizeImagePart(imageId)}`;
 }
 
+function safeDecodePath(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function storageRelativePath(storagePath: string) {
+  if (!storagePath.startsWith(projectFileRoutePrefix)) {
+    return null;
+  }
+
+  const [, ...filePath] = storagePath.slice(projectFileRoutePrefix.length).split("/");
+
+  return filePath.map(safeDecodePath).join("/");
+}
+
+function imagePathCandidates(file: ProjectImageFile) {
+  return [
+    file.relativePath,
+    storageRelativePath(file.storagePath),
+    file.fileName,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => value.normalize("NFC").replace(/\\/g, "/"));
+}
+
 export function buildProjectImageLookup<T extends ProjectImageFile>(files: T[]) {
   return new Map(
     files.flatMap((file) => {
-      const relativePath = (file.relativePath ?? file.fileName)
-        .normalize("NFC")
-        .replace(/\\/g, "/");
-      const directoryName = relativePath.includes("/")
-        ? relativePath.split("/").slice(0, -1).join("/")
-        : "";
-      const folderName = directoryName.split("/").filter(Boolean).at(-1) ?? "";
-      const imageName = path.basename(file.fileName, path.extname(file.fileName));
-      const folderNames = [
-        folderName,
-        directoryName,
-        ...directoryName.split("/").filter(Boolean),
-      ].filter(Boolean);
-      const imageNames = [imageName, file.fileName];
+      const imageNames = new Set([
+        path.basename(file.fileName, path.extname(file.fileName)),
+        file.fileName,
+        ...imagePathCandidates(file).map((candidate) => path.basename(candidate)),
+        ...imagePathCandidates(file).map((candidate) =>
+          path.basename(candidate, path.extname(candidate))
+        ),
+      ]);
+      const folderNames = new Set(
+        imagePathCandidates(file).flatMap((candidate) => {
+          const directoryName = candidate.includes("/")
+            ? candidate.split("/").slice(0, -1).join("/")
+            : "";
 
-      return folderNames.flatMap((folder) =>
-        imageNames.map((name) => [imageMatchKey(folder, name), file] as const)
+          return [
+            directoryName,
+            directoryName.split("/").filter(Boolean).at(-1) ?? "",
+            ...directoryName.split("/").filter(Boolean),
+          ];
+        })
       );
+
+      return [...folderNames]
+        .filter(Boolean)
+        .flatMap((folder) =>
+          [...imageNames]
+            .filter(Boolean)
+            .map((name) => [imageMatchKey(folder, name), file] as const)
+        );
     })
   );
 }
