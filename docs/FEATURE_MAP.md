@@ -266,6 +266,10 @@
 - `app/api/projects/uploads/cancel/route.ts`
   - R2 direct upload가 중간 실패했을 때 파일 기록이 없는 준비 단계 프로젝트 row를 삭제합니다.
 
+- `app/api/projects/uploads/diagnostics/route.ts`
+  - 로그인 상태에서 R2 presigned PUT URL에 `OPTIONS` preflight를 보내 CORS 응답 header를 확인합니다.
+  - `/api/projects/uploads/diagnostics?origin=https://www.seeval.kr`처럼 호출해 bucket CORS 적용 여부를 JSON으로 점검합니다.
+
 - `app/api/project-files/[projectId]/[...filePath]/route.ts`
   - 업로드된 프로젝트 파일을 권한 확인 후 제공합니다.
   - 삭제된 프로젝트(`deletedAt` 존재)는 파일 접근이 차단됩니다.
