@@ -4,6 +4,8 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { completeDirectProjectUpload } from "@/lib/project-upload";
 
+export const runtime = "nodejs";
+
 export async function POST(request: Request) {
   let projectId = "";
 

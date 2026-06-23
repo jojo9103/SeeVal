@@ -4,6 +4,8 @@ import { requireUser } from "@/lib/auth";
 import { assertR2StorageEnabled } from "@/lib/project-storage";
 import { prepareDirectProjectUpload } from "@/lib/project-upload";
 
+export const runtime = "nodejs";
+
 export async function POST(request: Request) {
   try {
     assertR2StorageEnabled();
