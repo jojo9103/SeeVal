@@ -251,6 +251,7 @@
 - `lib/project-storage.ts`
   - 업로드 파일 저장 경로와 `/api/project-files/...` 파일 URL 생성을 담당합니다.
   - 기본 저장소는 `.seeval-uploads/projects`이며 운영에서는 `SEEV_UPLOAD_DIR`로 코드 폴더 밖 경로를 지정할 수 있습니다.
+  - `SEEV_STORAGE_DRIVER=local|r2|auto`로 저장소를 명시할 수 있습니다. `local`은 R2 env가 있어도 로컬 파일시스템을 사용하고, `r2`는 R2 env 누락 시 오류를 냅니다.
   - R2 direct upload를 위해 15분짜리 presigned PUT URL을 생성합니다.
 
 - `app/api/projects/uploads/prepare/route.ts`
@@ -453,14 +454,18 @@
 - 업로드 파일 경로/권한 제공 문제는 `lib/project-storage.ts`와 `app/api/project-files/[projectId]/[...filePath]/route.ts`를 확인하세요.
   - 업로드 파일 제공 API는 프로젝트 권한 확인 후 파일을 반환하며 `Cache-Control=private, no-store`, `X-Content-Type-Options=nosniff`를 붙입니다.
   - `R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT` 또는 `R2_ACCOUNT_ID`가 모두 있으면 Cloudflare R2를 사용합니다.
-  - R2 env가 없으면 기존 로컬 filesystem 저장소(`.seeval-uploads/projects` 또는 `SEEV_UPLOAD_DIR`)를 fallback으로 사용합니다.
+  - `SEEV_STORAGE_DRIVER=auto` 또는 미설정이면 R2 env가 있을 때 R2를 사용하고, R2 env가 없으면 기존 로컬 filesystem 저장소(`.seeval-uploads/projects` 또는 `SEEV_UPLOAD_DIR`)를 fallback으로 사용합니다.
+  - PM2/local 서버에서 기존 로컬 이미지를 계속 보려면 `.env`에 `SEEV_STORAGE_DRIVER=local`을 지정하고, Vercel에는 `SEEV_STORAGE_DRIVER=r2`를 지정합니다.
   - DB의 `ProjectFile.storagePath`는 기존 `/api/project-files/{projectId}/...` 라우트 형식을 유지하며, route 내부에서 권한 확인 후 R2/local storage에서 파일을 읽습니다.
   - Vercel은 Function request body가 4.5MB로 제한되므로 큰 이미지 폴더는 R2 direct upload가 필요합니다.
+  - `NEXT_PUBLIC_SEEV_DIRECT_UPLOAD=false`로 빌드하면 클라이언트가 큰 업로드도 기존 서버 업로드 경로로 보냅니다. 로컬 PM2에서만 사용하고, Vercel/R2 배포에서는 기본값을 유지합니다.
   - R2 bucket CORS에서 배포 도메인의 `PUT`, `GET`, `HEAD` 요청과 `Content-Type` header를 허용해야 브라우저 direct upload가 성공합니다.
 - 업로드 파일 보안 제한은 `lib/project-upload.ts`를 확인하세요.
   - 데이터 파일은 `.csv`, `.tsv`, `.json`, `.jsonl`, `.xls`, `.xlsx`만 허용합니다.
   - 이미지 파일은 명시된 raster image 확장자만 허용하며 SVG는 업로드 이미지로 받지 않습니다.
-  - `SEEV_MAX_UPLOAD_FILE_BYTES`, `SEEV_MAX_UPLOAD_TOTAL_BYTES`로 파일별/전체 업로드 용량 제한을 조정할 수 있습니다.
+  - 기본 업로드 용량 제한은 파일당 3GB, 전체 3GB입니다.
+  - `SEEV_MAX_UPLOAD_FILE_BYTES`, `SEEV_MAX_UPLOAD_TOTAL_BYTES`로 파일별/전체 업로드 용량 제한을 byte 단위로 조정할 수 있습니다.
+  - Vercel은 서버 요청 body 제한이 있으므로 3GB 업로드는 R2 direct upload 경로로 처리해야 합니다.
 - Workspace 공유/Notification 관련 변경은 `components/workspace-actions.tsx`, `app/workspace/page.tsx`, `app/admin/accounts/page.tsx`를 함께 확인하세요.
 - DB 구조 변경 시 `prisma/schema.prisma` 수정 후 migration을 만들고 `npx prisma migrate deploy`, `npm run db:generate`를 실행하세요.
 - Vercel 배포 시 `npm run vercel-build`는 MVP 초기 배포 기준으로 `prisma generate && prisma db push --accept-data-loss && next build` 순서로 실행됩니다.

@@ -39,6 +39,8 @@ type DirectUploadTarget = {
 };
 
 const directUploadThresholdBytes = 4 * 1024 * 1024;
+const isDirectUploadEnabled =
+  process.env.NEXT_PUBLIC_SEEV_DIRECT_UPLOAD !== "false";
 
 function projectFileMetadata(target: DirectUploadTarget) {
   return {
@@ -363,6 +365,7 @@ export function ProjectWorkspacePanel({
     const formData = new FormData(form);
     const files = formUploadFiles(form);
     const shouldUseDirectUpload =
+      isDirectUploadEnabled &&
       directUploadTotalSize(files) > directUploadThresholdBytes;
 
     if (shouldUseDirectUpload) {

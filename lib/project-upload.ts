@@ -14,8 +14,8 @@ const imageIdColumn = "image_id";
 const imageFolderColumn = "image_folder";
 const editColumnPrefix = "Edit ";
 const fallbackRegistrationColumns = ["등록번호", "registrationNumber", "id"];
-const defaultMaxUploadFileBytes = 200 * 1024 * 1024;
-const defaultMaxUploadTotalBytes = 1024 * 1024 * 1024;
+const defaultMaxUploadFileBytes = 3 * 1024 * 1024 * 1024;
+const defaultMaxUploadTotalBytes = 3 * 1024 * 1024 * 1024;
 const dataExtensions = new Set([
   ".csv",
   ".json",

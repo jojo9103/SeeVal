@@ -9,6 +9,9 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const projectFileRoutePrefix = "/api/project-files/";
 const legacyPublicUploadPrefix = "/uploads/projects/";
+const storageDriverEnvValues = ["auto", "local", "r2"] as const;
+
+type StorageDriver = (typeof storageDriverEnvValues)[number];
 
 const projectUploadRoot =
   process.env.SEEV_UPLOAD_DIR
@@ -39,7 +42,23 @@ function assertSafeRelativePath(relativePath: string) {
   }
 }
 
+function storageDriver(): StorageDriver {
+  const rawDriver = process.env.SEEV_STORAGE_DRIVER?.trim().toLowerCase();
+
+  if (storageDriverEnvValues.includes(rawDriver as StorageDriver)) {
+    return rawDriver as StorageDriver;
+  }
+
+  return "auto";
+}
+
 function r2Config() {
+  const driver = storageDriver();
+
+  if (driver === "local") {
+    return null;
+  }
+
   const bucket = process.env.R2_BUCKET_NAME;
   const accessKeyId = process.env.R2_ACCESS_KEY_ID;
   const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
@@ -50,6 +69,12 @@ function r2Config() {
       : undefined);
 
   if (!bucket || !accessKeyId || !secretAccessKey || !endpoint) {
+    if (driver === "r2") {
+      throw new Error(
+        "SEEV_STORAGE_DRIVER=r2 이지만 R2 설정이 부족합니다. R2_BUCKET_NAME, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ENDPOINT 또는 R2_ACCOUNT_ID를 확인해주세요."
+      );
+    }
+
     return null;
   }
 
