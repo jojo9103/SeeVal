@@ -617,7 +617,7 @@ export default async function WorkspacePage() {
       id: file.id,
       fileName: file.fileName,
       kind: file.kind,
-      size: file.size,
+      size: Number(file.size),
     })),
   }));
   const accessibleProjectCount = projects.length;

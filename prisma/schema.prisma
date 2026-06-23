@@ -156,7 +156,7 @@ model ProjectFile {
   relativePath String?
   storagePath String
   mimeType    String
-  size        Int
+  size        BigInt
   kind        ProjectFileKind
   createdAt   DateTime        @default(now())
 

@@ -16,6 +16,7 @@ const editColumnPrefix = "Edit ";
 const fallbackRegistrationColumns = ["등록번호", "registrationNumber", "id"];
 const defaultMaxUploadFileBytes = 3 * 1024 * 1024 * 1024;
 const defaultMaxUploadTotalBytes = 3 * 1024 * 1024 * 1024;
+const projectCaseCreateBatchSize = 500;
 const dataExtensions = new Set([
   ".csv",
   ".json",
@@ -50,6 +51,9 @@ type SavedProjectFile = {
   mimeType: string;
   size: number;
   kind: ProjectFileKind;
+};
+type ReadableProjectFile = Omit<SavedProjectFile, "size"> & {
+  size: number | bigint;
 };
 type UploadFileDescriptor = {
   fieldName: string;
@@ -228,7 +232,7 @@ function parseXlsxRows(buffer: Buffer) {
     .filter((row) => Object.values(row).some((value) => value));
 }
 
-async function parseSavedDataFiles(files: SavedProjectFile[]) {
+async function parseSavedDataFiles(files: ReadableProjectFile[]) {
   const rows: DataRow[] = [];
 
   for (const file of files) {
@@ -356,8 +360,8 @@ function normalizeImagePart(value: string) {
     .toLowerCase();
 }
 
-function buildImageLookup(files: SavedProjectFile[]) {
-  const lookup = new Map<string, SavedProjectFile>();
+function buildImageLookup(files: ReadableProjectFile[]) {
+  const lookup = new Map<string, ReadableProjectFile>();
 
   for (const file of files.filter((file) =>
     imageExtensions.has(path.extname(file.fileName).toLowerCase())
@@ -386,7 +390,7 @@ function buildImageLookup(files: SavedProjectFile[]) {
 }
 
 function findImageFile(
-  imageLookup: Map<string, SavedProjectFile>,
+  imageLookup: Map<string, ReadableProjectFile>,
   imageFolder: string,
   imageId: string
 ) {
@@ -723,22 +727,20 @@ export async function completeDirectProjectUpload({
         where: { projectId },
       });
 
-      for (const file of files) {
-        await tx.projectFile.create({
-          data: {
-            fileName: file.fileName,
-            relativePath: file.relativePath,
-            storagePath: file.storagePath,
-            mimeType: file.mimeType,
-            size: file.size,
-            kind: file.kind,
-            projectId,
-          },
-        });
-      }
-
-      await rebuildProjectCases(projectId, tx);
+      await tx.projectFile.createMany({
+        data: files.map((file) => ({
+          fileName: file.fileName,
+          relativePath: file.relativePath,
+          storagePath: file.storagePath,
+          mimeType: file.mimeType,
+          size: BigInt(file.size),
+          kind: file.kind,
+          projectId,
+        })),
+      });
     });
+
+    await rebuildProjectCases(projectId);
   } catch (error) {
     await prisma.project.delete({
       where: { id: projectId },
@@ -831,9 +833,11 @@ export async function rebuildProjectCases(
     });
 
   if (cases.length > 0) {
-    await db.projectCase.createMany({
-      data: cases,
-    });
+    for (let index = 0; index < cases.length; index += projectCaseCreateBatchSize) {
+      await db.projectCase.createMany({
+        data: cases.slice(index, index + projectCaseCreateBatchSize),
+      });
+    }
   }
 }
 
@@ -899,6 +903,7 @@ export async function createProjectFromFormData({
       await prisma.projectFile.create({
         data: {
           ...file,
+          size: BigInt(file.size),
           projectId: project.id,
         },
       })
@@ -982,6 +987,7 @@ export async function updateProjectDataFromFormData({
         await tx.projectFile.create({
           data: {
             ...file,
+            size: BigInt(file.size),
             projectId,
           },
         });

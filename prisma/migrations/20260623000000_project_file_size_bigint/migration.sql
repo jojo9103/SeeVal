@@ -1,0 +1,3 @@
+ALTER TABLE "ProjectFile"
+  ALTER COLUMN "size" TYPE BIGINT
+  USING "size"::BIGINT;

@@ -241,6 +241,8 @@
   - CSV/XLSX/XLS 임상데이터와 모델예측 데이터를 파싱합니다.
   - 이미지 폴더 업로드 시 비이미지 파일은 제외합니다.
   - Vercel 배포에서 4MB를 넘는 프로젝트 생성 업로드는 R2 presigned URL direct upload 경로를 사용하고, 완료 후 서버가 DB 파일 기록과 케이스 재구성을 처리합니다.
+  - R2 direct upload 완료 처리는 DB transaction을 파일 metadata 저장까지만 짧게 유지하고, R2 파일 읽기/파싱/케이스 재구성은 transaction 밖에서 실행해 Neon 연결 끊김을 줄입니다.
+  - `rebuildProjectCases`는 케이스 `createMany`를 batch로 나누어 큰 업로드에서도 DB 요청 크기를 낮춥니다.
   - 임상데이터와 모델예측 데이터는 공통 컬럼 중 값이 일치하고 충돌하지 않는 row를 기준으로 연결합니다.
   - 공통 컬럼이 `image_id`인 경우 `YWDIF064`와 `YWDIF064_C3`처럼 샘플 ID 뒤에 이미지/염색 suffix가 붙은 예측 row도 같은 임상 row로 연결합니다.
   - `image_folder`와 `image_id`를 기반으로 업로드 이미지와 prediction row를 연결합니다. `image_folder`는 이미지 폴더/파일 매칭에 쓰입니다.
@@ -475,6 +477,7 @@
   - 데이터 파일은 `.csv`, `.tsv`, `.json`, `.jsonl`, `.xls`, `.xlsx`만 허용합니다.
   - 이미지 파일은 명시된 raster image 확장자만 허용하며 SVG는 업로드 이미지로 받지 않습니다.
   - 기본 업로드 용량 제한은 파일당 3GB, 전체 3GB입니다.
+  - `ProjectFile.size`는 3GB 파일 크기를 저장할 수 있도록 Prisma `BigInt`/PostgreSQL `BIGINT`를 사용합니다. 클라이언트로 넘길 때는 표시용 number로 변환합니다.
   - `SEEV_MAX_UPLOAD_FILE_BYTES`, `SEEV_MAX_UPLOAD_TOTAL_BYTES`로 파일별/전체 업로드 용량 제한을 byte 단위로 조정할 수 있습니다.
   - Vercel은 서버 요청 body 제한이 있으므로 3GB 업로드는 R2 direct upload 경로로 처리해야 합니다.
 - Workspace 공유/Notification 관련 변경은 `components/workspace-actions.tsx`, `app/workspace/page.tsx`, `app/admin/accounts/page.tsx`를 함께 확인하세요.
