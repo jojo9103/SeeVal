@@ -97,6 +97,7 @@ function r2Client() {
   return new S3Client({
     endpoint: config.endpoint,
     region: config.region,
+    forcePathStyle: true,
     requestChecksumCalculation: "WHEN_REQUIRED",
     responseChecksumValidation: "WHEN_REQUIRED",
     credentials: {

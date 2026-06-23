@@ -252,6 +252,7 @@
   - 업로드 파일 저장 경로와 `/api/project-files/...` 파일 URL 생성을 담당합니다.
   - 기본 저장소는 `.seeval-uploads/projects`이며 운영에서는 `SEEV_UPLOAD_DIR`로 코드 폴더 밖 경로를 지정할 수 있습니다.
   - `SEEV_STORAGE_DRIVER=local|r2|auto`로 저장소를 명시할 수 있습니다. `local`은 R2 env가 있어도 로컬 파일시스템을 사용하고, `r2`는 R2 env 누락 시 오류를 냅니다.
+  - R2 client는 `forcePathStyle`을 사용합니다. `R2_ENDPOINT`는 bucket 이름을 제외한 account endpoint(`https://<account-id>.r2.cloudflarestorage.com`)를 넣습니다.
   - R2 direct upload를 위해 15분짜리 presigned PUT URL을 생성합니다. 브라우저/R2 signature mismatch를 줄이기 위해 presigned URL에는 `Content-Type`을 서명하지 않고, AWS SDK의 불필요한 checksum 계산도 required일 때만 사용합니다.
 
 - `app/api/projects/uploads/prepare/route.ts`
