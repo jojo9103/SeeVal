@@ -267,7 +267,7 @@ export function ProjectWorkspacePanel({
           )
         );
       };
-      request.send(file);
+      request.send(file.slice(0, file.size, ""));
     });
   }
 

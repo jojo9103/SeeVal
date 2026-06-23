@@ -252,7 +252,7 @@
   - 업로드 파일 저장 경로와 `/api/project-files/...` 파일 URL 생성을 담당합니다.
   - 기본 저장소는 `.seeval-uploads/projects`이며 운영에서는 `SEEV_UPLOAD_DIR`로 코드 폴더 밖 경로를 지정할 수 있습니다.
   - `SEEV_STORAGE_DRIVER=local|r2|auto`로 저장소를 명시할 수 있습니다. `local`은 R2 env가 있어도 로컬 파일시스템을 사용하고, `r2`는 R2 env 누락 시 오류를 냅니다.
-  - R2 direct upload를 위해 15분짜리 presigned PUT URL을 생성합니다. 브라우저/R2 signature mismatch를 줄이기 위해 presigned URL에는 `Content-Type`을 서명하지 않습니다.
+  - R2 direct upload를 위해 15분짜리 presigned PUT URL을 생성합니다. 브라우저/R2 signature mismatch를 줄이기 위해 presigned URL에는 `Content-Type`을 서명하지 않고, AWS SDK의 불필요한 checksum 계산도 required일 때만 사용합니다.
 
 - `app/api/projects/uploads/prepare/route.ts`
   - 로그인 사용자에게 프로젝트 생성용 R2 presigned PUT URL 목록을 발급합니다.
@@ -459,6 +459,7 @@
   - DB의 `ProjectFile.storagePath`는 기존 `/api/project-files/{projectId}/...` 라우트 형식을 유지하며, route 내부에서 권한 확인 후 R2/local storage에서 파일을 읽습니다.
   - Vercel은 Function request body가 4.5MB로 제한되므로 큰 이미지 폴더는 R2 direct upload가 필요합니다.
   - `NEXT_PUBLIC_SEEV_DIRECT_UPLOAD=false`로 빌드하면 클라이언트가 큰 업로드도 기존 서버 업로드 경로로 보냅니다. 로컬 PM2에서만 사용하고, Vercel/R2 배포에서는 기본값을 유지합니다.
+  - 브라우저가 파일 MIME type으로 `Content-Type`을 자동 부여하지 않도록 R2 PUT 요청은 type 없는 `Blob`으로 전송합니다.
   - R2 bucket CORS에서 배포 도메인의 `PUT`, `GET`, `HEAD` 요청을 허용해야 브라우저 direct upload가 성공합니다.
 - 업로드 파일 보안 제한은 `lib/project-upload.ts`를 확인하세요.
   - 데이터 파일은 `.csv`, `.tsv`, `.json`, `.jsonl`, `.xls`, `.xlsx`만 허용합니다.
