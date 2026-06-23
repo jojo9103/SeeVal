@@ -255,6 +255,10 @@
   - R2 client는 `forcePathStyle`을 사용합니다. `R2_ENDPOINT`는 bucket 이름을 제외한 account endpoint(`https://<account-id>.r2.cloudflarestorage.com`)를 넣습니다.
   - R2 direct upload를 위해 15분짜리 presigned PUT URL을 생성합니다. 브라우저/R2 signature mismatch를 줄이기 위해 presigned URL에는 `Content-Type`을 서명하지 않고, AWS SDK의 불필요한 checksum 계산도 required일 때만 사용합니다.
 
+- `lib/r2-upload-diagnostics.ts`
+  - R2 presigned URL을 만들고 `OPTIONS` preflight 요청을 보내 CORS 응답을 구조화합니다.
+  - `fetch failed`처럼 응답 이전에 실패한 경우 `uploadHost`, `uploadPathPrefix`, error cause를 반환해 Vercel env/R2 endpoint 문제를 좁힙니다.
+
 - `app/api/projects/uploads/prepare/route.ts`
   - 로그인 사용자에게 프로젝트 생성용 R2 presigned PUT URL 목록을 발급합니다.
   - 파일 확장자와 업로드 용량 제한을 서버에서 먼저 검증한 뒤 프로젝트 row를 생성합니다.
@@ -269,6 +273,7 @@
 - `app/api/projects/uploads/diagnostics/route.ts`
   - 로그인 상태에서 R2 presigned PUT URL에 `OPTIONS` preflight를 보내 CORS 응답 header를 확인합니다.
   - `/api/projects/uploads/diagnostics?origin=https://www.seeval.kr`처럼 호출해 bucket CORS 적용 여부를 JSON으로 점검합니다.
+  - route는 인증과 HTTP 응답만 담당하고, 실제 진단 로직은 `lib/r2-upload-diagnostics.ts`에 있습니다.
 
 - `app/api/project-files/[projectId]/[...filePath]/route.ts`
   - 업로드된 프로젝트 파일을 권한 확인 후 제공합니다.
