@@ -1,4 +1,3 @@
-import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 import * as XLSX from "xlsx";
 
@@ -6,9 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { assertRowsWithColumnMetadata } from "@/lib/project-column-metadata";
 import {
   getProjectFileUrl,
-  getProjectUploadDir,
-  getProjectUploadFilePath,
-  getStoredProjectFilePath,
+  readStoredProjectFile,
+  writeProjectFile,
 } from "@/lib/project-storage";
 
 const imageIdColumn = "image_id";
@@ -215,15 +213,14 @@ async function parseSavedDataFiles(files: SavedProjectFile[]) {
   const rows: DataRow[] = [];
 
   for (const file of files) {
-    const filePath = getStoredProjectFilePath(file.storagePath);
     const extension = path.extname(file.fileName).toLowerCase();
 
     if (extension === ".xlsx" || extension === ".xls") {
-      rows.push(...parseXlsxRows(await readFile(filePath)));
+      rows.push(...parseXlsxRows(await readStoredProjectFile(file.storagePath)));
       continue;
     }
 
-    const content = await readFile(filePath, "utf8");
+    const content = (await readStoredProjectFile(file.storagePath)).toString("utf8");
 
     if (extension === ".json") {
       rows.push(...parseJsonRows(content));
@@ -522,14 +519,11 @@ async function saveProjectFiles({
   kind: ProjectFileKind;
 }) {
   const savedFiles: SavedProjectFile[] = [];
-  const projectUploadDir = getProjectUploadDir(projectId);
   const acceptedFiles = files.filter((file): file is File =>
     isAcceptedUploadFile(file, kind)
   );
 
   assertUploadSizeLimits(acceptedFiles);
-
-  await mkdir(projectUploadDir, { recursive: true });
 
   for (const file of acceptedFiles) {
     const relativePath = getFileRelativePath(file);
@@ -537,11 +531,15 @@ async function saveProjectFiles({
       .split("/")
       .map((segment) => sanitizeFileName(segment))
       .join("/");
-    const filePath = getProjectUploadFilePath(projectId, safeRelativePath);
     const arrayBuffer = await file.arrayBuffer();
+    const fileBuffer = Buffer.from(arrayBuffer);
 
-    await mkdir(path.dirname(filePath), { recursive: true });
-    await writeFile(filePath, Buffer.from(arrayBuffer));
+    await writeProjectFile({
+      projectId,
+      relativePath: safeRelativePath,
+      body: fileBuffer,
+      contentType: file.type || "application/octet-stream",
+    });
 
     savedFiles.push({
       fileName: file.name,

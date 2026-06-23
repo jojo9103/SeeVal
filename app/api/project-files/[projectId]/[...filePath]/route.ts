@@ -1,10 +1,9 @@
-import { readFile } from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
 
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getProjectUploadFilePath } from "@/lib/project-storage";
+import { readProjectFile } from "@/lib/project-storage";
 
 type RouteContext = {
   params: Promise<{
@@ -69,10 +68,9 @@ export async function GET(_request: Request, { params }: RouteContext) {
 
   try {
     const relativePath = filePath.join("/");
-    const fullPath = getProjectUploadFilePath(projectId, relativePath);
-    const file = await readFile(fullPath);
+    const file = await readProjectFile(projectId, relativePath);
     const contentType =
-      mimeTypes.get(path.extname(fullPath).toLowerCase()) ??
+      mimeTypes.get(path.extname(relativePath).toLowerCase()) ??
       "application/octet-stream";
 
     return new Response(file, {

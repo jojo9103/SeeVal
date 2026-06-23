@@ -437,13 +437,17 @@
 - 데이터 파싱/업로드 문제는 `lib/project-upload.ts`를 확인하세요.
 - 업로드 파일 경로/권한 제공 문제는 `lib/project-storage.ts`와 `app/api/project-files/[projectId]/[...filePath]/route.ts`를 확인하세요.
   - 업로드 파일 제공 API는 프로젝트 권한 확인 후 파일을 반환하며 `Cache-Control=private, no-store`, `X-Content-Type-Options=nosniff`를 붙입니다.
+  - `R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT` 또는 `R2_ACCOUNT_ID`가 모두 있으면 Cloudflare R2를 사용합니다.
+  - R2 env가 없으면 기존 로컬 filesystem 저장소(`.seeval-uploads/projects` 또는 `SEEV_UPLOAD_DIR`)를 fallback으로 사용합니다.
+  - DB의 `ProjectFile.storagePath`는 기존 `/api/project-files/{projectId}/...` 라우트 형식을 유지하며, route 내부에서 권한 확인 후 R2/local storage에서 파일을 읽습니다.
 - 업로드 파일 보안 제한은 `lib/project-upload.ts`를 확인하세요.
   - 데이터 파일은 `.csv`, `.tsv`, `.json`, `.jsonl`, `.xls`, `.xlsx`만 허용합니다.
   - 이미지 파일은 명시된 raster image 확장자만 허용하며 SVG는 업로드 이미지로 받지 않습니다.
   - `SEEV_MAX_UPLOAD_FILE_BYTES`, `SEEV_MAX_UPLOAD_TOTAL_BYTES`로 파일별/전체 업로드 용량 제한을 조정할 수 있습니다.
 - Workspace 공유/Notification 관련 변경은 `components/workspace-actions.tsx`, `app/workspace/page.tsx`, `app/admin/accounts/page.tsx`를 함께 확인하세요.
 - DB 구조 변경 시 `prisma/schema.prisma` 수정 후 migration을 만들고 `npx prisma migrate deploy`, `npm run db:generate`를 실행하세요.
-- Vercel 배포 시 `npm run vercel-build`는 `prisma generate && prisma migrate deploy && next build` 순서로 실행됩니다.
+- Vercel 배포 시 `npm run vercel-build`는 MVP 초기 배포 기준으로 `prisma generate && prisma db push --accept-data-loss && next build` 순서로 실행됩니다.
+- `vercel.json`은 Vercel Build Command를 `npm run vercel-build`로 고정해 dashboard 설정 누락으로 `npm run build`만 실행되는 문제를 줄입니다.
 - validation 변경 시 `npm run test:validation`으로 column metadata 검증 테스트를 실행하세요.
 - 운영에서는 `npm run backup`을 cron에 등록해 DB와 업로드 파일을 함께 백업하세요.
 - 운영 배포/재시작은 `npm run build`, `npm run pm2:reload`, `pm2 save` 순서로 진행하세요.
