@@ -281,6 +281,14 @@
   - `/api/projects/uploads/diagnostics?origin=https://www.seeval.kr`처럼 호출해 bucket CORS 적용 여부를 JSON으로 점검합니다.
   - route는 인증과 HTTP 응답만 담당하고, 실제 진단 로직은 `lib/r2-upload-diagnostics.ts`에 있습니다.
 
+- `app/api/projects/[projectId]/image-match-diagnostics/route.ts`
+  - 프로젝트의 이미지 파일 목록과 케이스의 `image_folder`/`image_id` 매칭 상태를 JSON으로 반환합니다.
+  - 이미지 요청 404가 없는데 화면에 이미지가 없을 때, `imageUrl` 자체가 비어 있는지 확인하는 용도입니다.
+
+- `app/api/projects/[projectId]/rebuild-cases/route.ts`
+  - 소유자 또는 ADMIN이 프로젝트 케이스를 다시 생성해 이미지 매칭을 재실행할 수 있는 유지보수 API입니다.
+  - 이미지 lookup 로직을 고친 뒤 기존 프로젝트의 `imageFileId`를 다시 채울 때 사용합니다.
+
 - `app/api/project-files/[projectId]/[...filePath]/route.ts`
   - 업로드된 프로젝트 파일을 권한 확인 후 제공합니다.
   - 삭제된 프로젝트(`deletedAt` 존재)는 파일 접근이 차단됩니다.
