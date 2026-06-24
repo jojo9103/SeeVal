@@ -208,6 +208,9 @@ async function requestProjectShare(
       ...(currentUser.role === "ADMIN" ? {} : { ownerId: currentUser.id }),
       deletedAt: null,
     },
+    select: {
+      id: true,
+    },
   });
 
   if (!project) {
@@ -222,6 +225,9 @@ async function requestProjectShare(
       id: { in: userIds },
       status: "ACTIVE",
       role: "USER",
+    },
+    select: {
+      id: true,
     },
   });
 
@@ -298,7 +304,6 @@ async function requestProjectShare(
   );
 
   revalidatePath("/workspace");
-  revalidatePath(`/workspace/projects/${projectId}`);
 
   return {
     type: "success",
@@ -326,7 +331,6 @@ async function cancelProjectShare(formData: FormData) {
     },
     select: {
       id: true,
-      projectId: true,
     },
   });
 
@@ -339,8 +343,6 @@ async function cancelProjectShare(formData: FormData) {
   });
 
   revalidatePath("/workspace");
-  revalidatePath(`/workspace/projects/${share.projectId}`);
-  revalidatePath(`/workspace/projects/${share.projectId}/review`);
 }
 
 async function acceptShare(formData: FormData) {

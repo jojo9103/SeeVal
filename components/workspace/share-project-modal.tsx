@@ -1,6 +1,7 @@
 "use client";
 
 import { Search, Send } from "lucide-react";
+import { useFormStatus } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 import { ModalFrame, Notice } from "@/components/workspace/common";
@@ -13,6 +14,21 @@ import type {
   ShareUser,
   WorkspaceActionState,
 } from "@/components/workspace/types";
+
+function ShareSubmitButton() {
+  const { pending } = useFormStatus();
+
+  return (
+    <Button
+      type="submit"
+      disabled={pending}
+      className="gap-2 border border-teal-200/35 bg-teal-300/18 text-teal-50 hover:bg-teal-300/28 disabled:cursor-not-allowed disabled:opacity-55"
+    >
+      <Send className="h-4 w-4" />
+      {pending ? "요청 중" : "공유 요청"}
+    </Button>
+  );
+}
 
 export function ShareProjectModal({
   filteredShareUsers,
@@ -148,13 +164,7 @@ export function ShareProjectModal({
           >
             취소
           </button>
-          <Button
-            type="submit"
-            className="gap-2 border border-teal-200/35 bg-teal-300/18 text-teal-50 hover:bg-teal-300/28"
-          >
-            <Send className="h-4 w-4" />
-            공유 요청
-          </Button>
+          <ShareSubmitButton />
         </div>
       </form>
     </ModalFrame>

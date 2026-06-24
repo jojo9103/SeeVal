@@ -29,7 +29,13 @@ export function NotificationCenter({
   const [open, setOpen] = useState(false);
   const [dismissedNoticeIds, setDismissedNoticeIds] = useState<string[]>([]);
   const [locallyReadNoticeIds, setLocallyReadNoticeIds] = useState<string[]>([]);
+  const [handledRequestIds, setHandledRequestIds] = useState<string[]>([]);
+  const [pendingRequestIds, setPendingRequestIds] = useState<string[]>([]);
   const [, startTransition] = useTransition();
+  const visibleRequests = useMemo(
+    () => requests.filter((request) => !handledRequestIds.includes(request.id)),
+    [handledRequestIds, requests]
+  );
   const visibleNotices = useMemo(
     () => notices.filter((notice) => !dismissedNoticeIds.includes(notice.id)),
     [dismissedNoticeIds, notices]
@@ -44,7 +50,16 @@ export function NotificationCenter({
         .map((notice) => notice.id),
     [locallyReadNoticeIds, visibleNotices]
   );
-  const notificationCount = requests.length + unreadNoticeIds.length;
+  const notificationCount = visibleRequests.length + unreadNoticeIds.length;
+
+  function markShareRequestPending(shareId: string) {
+    setPendingRequestIds((current) =>
+      current.includes(shareId) ? current : [...current, shareId]
+    );
+    setHandledRequestIds((current) =>
+      current.includes(shareId) ? current : [...current, shareId]
+    );
+  }
 
   function toggleNotificationCenter() {
     const nextOpen = !open;
@@ -105,12 +120,12 @@ export function NotificationCenter({
             <div>
               <h3 className="text-sm font-semibold text-white">공유 요청</h3>
               <div className="mt-2 grid gap-2">
-                {requests.length === 0 && (
+                {visibleRequests.length === 0 && (
                   <div className="rounded-lg border border-dashed border-white/12 p-4 text-center text-sm text-white/42">
                     받은 공유 요청이 없습니다.
                   </div>
                 )}
-                {requests.map((request) => (
+                {visibleRequests.map((request) => (
                   <article
                     key={request.id}
                     className="rounded-lg border border-white/10 bg-white/[0.04] p-3"
@@ -128,16 +143,28 @@ export function NotificationCenter({
                       </p>
                     )}
                     <div className="mt-3 flex gap-2">
-                      <form action={acceptShare}>
+                      <form
+                        action={acceptShare}
+                        onSubmit={() => markShareRequestPending(request.id)}
+                      >
                         <input type="hidden" name="shareId" value={request.id} />
-                        <button className="inline-flex items-center gap-1.5 rounded-md bg-teal-300/18 px-3 py-1.5 text-xs font-medium text-teal-50 transition hover:bg-teal-300/28">
+                        <button
+                          disabled={pendingRequestIds.includes(request.id)}
+                          className="inline-flex items-center gap-1.5 rounded-md bg-teal-300/18 px-3 py-1.5 text-xs font-medium text-teal-50 transition hover:bg-teal-300/28 disabled:cursor-not-allowed disabled:opacity-45"
+                        >
                           <Check className="h-3.5 w-3.5" />
                           수락
                         </button>
                       </form>
-                      <form action={rejectShare}>
+                      <form
+                        action={rejectShare}
+                        onSubmit={() => markShareRequestPending(request.id)}
+                      >
                         <input type="hidden" name="shareId" value={request.id} />
-                        <button className="inline-flex items-center gap-1.5 rounded-md bg-rose-300/14 px-3 py-1.5 text-xs font-medium text-rose-100 transition hover:bg-rose-300/24">
+                        <button
+                          disabled={pendingRequestIds.includes(request.id)}
+                          className="inline-flex items-center gap-1.5 rounded-md bg-rose-300/14 px-3 py-1.5 text-xs font-medium text-rose-100 transition hover:bg-rose-300/24 disabled:cursor-not-allowed disabled:opacity-45"
+                        >
                           <X className="h-3.5 w-3.5" />
                           거절
                         </button>

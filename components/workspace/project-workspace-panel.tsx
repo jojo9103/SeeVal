@@ -194,7 +194,6 @@ export function ProjectWorkspacePanel({
       setShareProject(null);
       setShareUserQuery("");
       setShareBanner(shareState);
-      router.refresh();
     }, 0);
 
     return () => window.clearTimeout(timer);
