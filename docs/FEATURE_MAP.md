@@ -159,6 +159,7 @@
   - 평가 취합 페이지의 테이블입니다.
   - 상단 `ReviewSectionMenu`로 `평가 결과 취합`, `Annotations 위치 취합`, `Comments 취합`을 전환합니다.
   - `ReviewCheckpointPanel`을 통해 현재 취합 상태 checkpoint 생성과 checkpoint 복구 action을 연결합니다.
+  - `ResultAgreementPanel`을 통해 선택된 raw column별 사용자 `Edit {column}` 값의 일치도를 요약합니다.
   - 선택된 column chip 또는 Column 찾기에서 column을 해제하면 취합 표시와 수정 허용 목록에서만 빠지고, 기존 사용자별 Edit 데이터는 보존합니다.
   - `Column 찾기` 검색 팝오버에서 여러 column을 multi select할 수 있습니다.
   - 선택한 raw column을 저장하면 프로젝트 평가 화면에서 `Edit {column}` 수정 가능 항목이 됩니다.
@@ -179,6 +180,17 @@
   - 내보내기 데이터는 현재 선택된 column 기준이며, `sample`, `image_id`, 원본값, 공유 사용자별 수정값 순서로 구성됩니다.
   - 페이지네이션은 화면 표시 범위만 바꾸며, 파일 저장은 선택된 column의 전체 취합 rows를 대상으로 합니다.
   - CSV/TSV는 브라우저 Blob 다운로드를 사용하고, Excel은 `xlsx`의 `aoa_to_sheet`/`writeFile`을 사용합니다.
+
+- `components/project-review/result-agreement-panel.tsx`
+  - 평가 결과 취합의 사용자별 Edit 값 일치도 UI를 담당합니다.
+  - 빈 값은 제외하고 같은 샘플에 2명 이상이 값을 남긴 경우만 비교합니다.
+  - column별 비교 샘플 수, 전체 일치율, pairwise 일치율, kappa, 불일치 샘플 수, 주요 값 분포를 표시합니다.
+  - column row를 펼치면 불일치 샘플과 사용자별 값을 확인할 수 있습니다.
+
+- `lib/project-review-agreement.ts`
+  - 평가 결과 일치도 계산 helper입니다.
+  - `Edit {column}` 값을 기준으로 전체 일치율, pairwise 일치율, pooled category proportion 기반 kappa를 계산합니다.
+  - 서버/API 없이 브라우저에 이미 로딩된 review rows로 계산해 Neon/Vercel 추가 비용을 만들지 않습니다.
 
 - `lib/project-column-metadata.ts`
   - 프로젝트별 동적 column metadata 정규화와 validation을 담당합니다.
@@ -476,6 +488,7 @@
   - 숨겨진 column을 다시 선택하면 보존된 사용자별 Edit 데이터가 취합 표에 다시 표시됩니다.
   - 사용자별 Edit 데이터 초기화는 취합 표의 `Edit {column} ({User name})` header reset 버튼으로 처리합니다.
   - 수정 허용 column 저장과 결과 파일 저장을 별도 기능으로 분리했습니다.
+  - 사용자별 Edit 값 일치도는 `components/project-review/result-agreement-panel.tsx`와 `lib/project-review-agreement.ts`로 분리했습니다.
   - 결과 파일 저장은 CSV/TSV/Excel 형식 선택 후 `저장하기` 버튼으로 실행합니다.
   - Column 선택 영역의 `컬럼 설정` 배너에서 타입/범위/nullable/unit/description을 저장합니다.
   - metadata 설정 UI에는 선택된 raw column만 표시하고, 실제 저장/검증/수정 적용은 `Edit {column}`에 합니다.

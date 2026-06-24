@@ -30,6 +30,7 @@ import {
   ReviewCheckpointPanel,
   type ReviewCheckpoint,
 } from "@/components/project-review/checkpoints";
+import { ResultAgreementPanel } from "@/components/project-review/result-agreement-panel";
 import type { ColumnDataType, ColumnMetadata } from "@/components/project/types";
 import { SelectNative } from "@/components/ui/select-native";
 
@@ -1270,6 +1271,11 @@ export function ProjectReviewTable({
             </div>
           )}
         </form>
+        <ResultAgreementPanel
+          rows={reviewRows}
+          users={sharedUsers}
+          columns={visibleColumns}
+        />
       </div>
 
       <div className="mt-5 overflow-x-auto rounded-xl border border-white/10">

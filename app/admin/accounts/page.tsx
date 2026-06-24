@@ -299,12 +299,14 @@ export default async function AdminAccountsPage({
           <div className="flex flex-wrap gap-2">
             <Link
               href="/workspace"
+              prefetch={false}
               className="rounded-md border border-teal-200/30 bg-teal-300/12 px-4 py-2 text-sm font-medium text-teal-50 transition hover:bg-teal-300/22"
             >
               Workspace
             </Link>
             <Link
               href="/workspace"
+              prefetch={false}
               className="rounded-md border border-amber-300/25 bg-amber-300/10 px-4 py-2 text-sm font-medium text-amber-50 transition hover:bg-amber-300/18"
             >
               ADMIN 업로드 데이터
@@ -362,6 +364,7 @@ export default async function AdminAccountsPage({
             </div>
             <Link
               href="/workspace"
+              prefetch={false}
               className="inline-flex h-10 w-fit items-center justify-center rounded-md border border-teal-200/25 bg-teal-300/12 px-4 text-sm font-medium text-teal-50 transition hover:bg-teal-300/22"
             >
               전체 프로젝트 보기
@@ -410,12 +413,14 @@ export default async function AdminAccountsPage({
                       <div className="flex flex-wrap gap-2">
                         <Link
                           href={`/workspace/projects/${project.id}`}
+                          prefetch={false}
                           className="inline-flex h-9 items-center justify-center rounded-md border border-white/14 bg-white/[0.07] px-3 text-sm font-medium text-white/78 transition hover:bg-white/12 hover:text-white"
                         >
                           프로젝트 보기
                         </Link>
                         <Link
                           href={`/workspace/projects/${project.id}/review`}
+                          prefetch={false}
                           className="inline-flex h-9 items-center justify-center rounded-md border border-amber-300/20 bg-amber-300/10 px-3 text-sm font-medium text-amber-50 transition hover:bg-amber-300/18"
                         >
                           평가 취합
