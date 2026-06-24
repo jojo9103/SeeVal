@@ -49,6 +49,17 @@ export async function GET(_request: Request, { params }: RouteContext) {
               },
             },
           },
+          reviewStates: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                },
+              },
+            },
+          },
         },
         orderBy: { createdAt: "desc" },
       }),
@@ -75,6 +86,17 @@ export async function GET(_request: Request, { params }: RouteContext) {
             content: comment.content,
             updatedAt: formatSeoulDateTime(comment.updatedAt),
           })),
+        reviewStates: projectCase.reviewStates.map((reviewState) => ({
+          userId: reviewState.userId,
+          userName: reviewState.user.name,
+          userEmail: reviewState.user.email,
+          status: reviewState.status,
+          tags: Array.isArray(reviewState.tags)
+            ? reviewState.tags.filter((tag): tag is string => typeof tag === "string")
+            : [],
+          note: reviewState.note ?? "",
+          updatedAt: formatSeoulDateTime(reviewState.updatedAt),
+        })),
       })),
     });
   } catch (error) {

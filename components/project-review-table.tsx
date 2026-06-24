@@ -64,6 +64,15 @@ type ReviewRow = {
     content: string;
     updatedAt: string;
   }>;
+  reviewStates: Array<{
+    userId: string;
+    userName: string;
+    userEmail: string;
+    status: string;
+    tags: string[];
+    note: string;
+    updatedAt: string;
+  }>;
 };
 type LazyAnnotationRow = Pick<
   ReviewRow,
@@ -71,7 +80,13 @@ type LazyAnnotationRow = Pick<
 >;
 type LazyCommentRow = Pick<
   ReviewRow,
-  "id" | "registrationNumber" | "imageId" | "imageUrl" | "imageFileName" | "comments"
+  | "id"
+  | "registrationNumber"
+  | "imageId"
+  | "imageUrl"
+  | "imageFileName"
+  | "comments"
+  | "reviewStates"
 >;
 
 type ReviewAnnotation =
@@ -427,12 +442,13 @@ export function ProjectReviewTable({
           (payload.rows ?? []) as LazyCommentRow[],
           (row, update) => ({
             ...row,
-            imageUrl: row.imageUrl ?? update.imageUrl,
-            imageFileName: row.imageFileName ?? update.imageFileName,
-            comments: update.comments,
-          })
-        );
-      });
+              imageUrl: row.imageUrl ?? update.imageUrl,
+              imageFileName: row.imageFileName ?? update.imageFileName,
+              comments: update.comments,
+              reviewStates: update.reviewStates,
+            })
+          );
+        });
       setLoadedReviewSections((current) => ({
         ...current,
         [section]: true,

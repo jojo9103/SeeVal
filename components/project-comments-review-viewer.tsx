@@ -10,6 +10,16 @@ type CommentUser = {
   updatedAt: string;
 };
 
+type ReviewStateUser = {
+  userId: string;
+  userName: string;
+  userEmail: string;
+  status: string;
+  tags: string[];
+  note: string;
+  updatedAt: string;
+};
+
 type CommentReviewRow = {
   id: string;
   registrationNumber: string;
@@ -17,6 +27,15 @@ type CommentReviewRow = {
   imageUrl: string | null;
   imageFileName: string | null;
   comments: CommentUser[];
+  reviewStates: ReviewStateUser[];
+};
+
+const reviewStatusLabels: Record<string, string> = {
+  NOT_REVIEWED: "미검토",
+  IN_PROGRESS: "검토 중",
+  NEEDS_FIX: "수정 필요",
+  CONSENSUS_DONE: "합의 완료",
+  MODEL_ERROR: "모델 오류",
 };
 
 function sanitizeFileName(value: string) {
@@ -49,6 +68,19 @@ function commentCount(row: CommentReviewRow) {
   return row.comments.filter((comment) => comment.content.trim()).length;
 }
 
+function reviewStateCount(row: CommentReviewRow) {
+  return row.reviewStates.filter(
+    (reviewState) =>
+      reviewState.status !== "NOT_REVIEWED" ||
+      reviewState.tags.length > 0 ||
+      reviewState.note.trim()
+  ).length;
+}
+
+function rowHasReviewContent(row: CommentReviewRow) {
+  return commentCount(row) > 0 || reviewStateCount(row) > 0;
+}
+
 function buildCommentExportSample(row: CommentReviewRow) {
   return {
     caseId: row.id,
@@ -64,6 +96,23 @@ function buildCommentExportSample(row: CommentReviewRow) {
         content: comment.content,
         updatedAt: comment.updatedAt,
       })),
+    reviewStates: row.reviewStates
+      .filter(
+        (reviewState) =>
+          reviewState.status !== "NOT_REVIEWED" ||
+          reviewState.tags.length > 0 ||
+          reviewState.note.trim()
+      )
+      .map((reviewState) => ({
+        userId: reviewState.userId,
+        userName: reviewState.userName,
+        userEmail: reviewState.userEmail,
+        status: reviewState.status,
+        statusLabel: reviewStatusLabels[reviewState.status] ?? reviewState.status,
+        tags: reviewState.tags,
+        note: reviewState.note,
+        updatedAt: reviewState.updatedAt,
+      })),
   };
 }
 
@@ -73,7 +122,7 @@ export function ProjectCommentsReviewViewer({
   rows: CommentReviewRow[];
 }) {
   const rowsWithComments = useMemo(
-    () => rows.filter((row) => commentCount(row) > 0),
+    () => rows.filter(rowHasReviewContent),
     [rows]
   );
   const [selectedRowId, setSelectedRowId] = useState<string | null>(
@@ -85,6 +134,13 @@ export function ProjectCommentsReviewViewer({
     null;
   const selectedComments =
     selectedRow?.comments.filter((comment) => comment.content.trim()) ?? [];
+  const selectedReviewStates =
+    selectedRow?.reviewStates.filter(
+      (reviewState) =>
+        reviewState.status !== "NOT_REVIEWED" ||
+        reviewState.tags.length > 0 ||
+        reviewState.note.trim()
+    ) ?? [];
 
   function exportComments(target: "sample" | "all") {
     const exportRows =
@@ -115,9 +171,9 @@ export function ProjectCommentsReviewViewer({
     <section className="mt-6 rounded-2xl border border-white/12 bg-white/[0.06] p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">Comments 취합</h2>
+          <h2 className="text-lg font-semibold">Comments & Review 상태 취합</h2>
           <p className="mt-2 text-sm text-white/54">
-            이미지별로 사용자 comments를 모아 확인합니다.
+            이미지별로 사용자 comments와 review 상태를 모아 확인합니다.
           </p>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
@@ -166,7 +222,7 @@ export function ProjectCommentsReviewViewer({
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-medium">{row.registrationNumber}</span>
                     <span className="rounded-md bg-white/[0.06] px-2 py-0.5 text-xs text-white/55">
-                      {commentCount(row)}명
+                      C {commentCount(row)} · S {reviewStateCount(row)}
                     </span>
                   </div>
                   <p className="mt-1 truncate text-xs text-white/42">
@@ -177,7 +233,7 @@ export function ProjectCommentsReviewViewer({
             })}
             {rowsWithComments.length === 0 && (
               <div className="rounded-lg border border-dashed border-white/12 px-3 py-8 text-center text-sm text-white/42">
-                취합할 comments가 없습니다.
+                취합할 comments 또는 review 상태가 없습니다.
               </div>
             )}
           </div>
@@ -214,6 +270,65 @@ export function ProjectCommentsReviewViewer({
                 선택된 환자에 연결된 이미지가 없습니다.
               </div>
             )}
+          </div>
+
+          <div className="rounded-xl border border-white/10 bg-[#171717]/55 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-white/86">
+                Review 상태
+              </h3>
+              <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-xs text-white/48">
+                {selectedReviewStates.length}
+              </span>
+            </div>
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              {selectedReviewStates.map((reviewState) => (
+                <article
+                  key={`state-${reviewState.userId}-${selectedRow?.id}`}
+                  className="rounded-lg border border-amber-100/15 bg-amber-100/[0.055] p-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium text-white/86">
+                        {reviewState.userName}
+                      </p>
+                      <p className="mt-0.5 text-xs text-white/38">
+                        {reviewState.userEmail}
+                      </p>
+                    </div>
+                    <span className="rounded-md border border-amber-100/15 bg-amber-100/[0.08] px-2 py-1 text-xs text-amber-50/82">
+                      {reviewStatusLabels[reviewState.status] ??
+                        reviewState.status}
+                    </span>
+                  </div>
+                  {reviewState.tags.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {reviewState.tags.map((tag) => (
+                        <span
+                          key={`${reviewState.userId}-${tag}`}
+                          className="rounded-md border border-white/10 bg-white/[0.045] px-2 py-1 text-xs text-white/62"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {reviewState.note && (
+                    <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-white/72">
+                      {reviewState.note}
+                    </p>
+                  )}
+                  <p className="mt-3 text-xs text-white/38">
+                    {reviewState.updatedAt}
+                  </p>
+                </article>
+              ))}
+              {selectedReviewStates.length === 0 && (
+                <div className="rounded-lg border border-dashed border-white/12 px-3 py-8 text-center text-sm text-white/42">
+                  이 이미지에 저장된 review 상태가 없습니다.
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="rounded-xl border border-white/10 bg-[#171717]/55 p-3">

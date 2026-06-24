@@ -745,6 +745,7 @@ export default async function ProjectReviewPage({
     })),
     annotations: [],
     comments: [],
+    reviewStates: [],
   }));
 
   return (

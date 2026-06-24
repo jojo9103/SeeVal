@@ -1,7 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Save } from "lucide-react";
+import { Flag, Save } from "lucide-react";
+
+import type { CaseReviewStatus } from "@/components/project/types";
+
+const reviewStatusOptions: Array<{ value: CaseReviewStatus; label: string }> = [
+  { value: "NOT_REVIEWED", label: "미검토" },
+  { value: "IN_PROGRESS", label: "검토 중" },
+  { value: "NEEDS_FIX", label: "수정 필요" },
+  { value: "CONSENSUS_DONE", label: "합의 완료" },
+  { value: "MODEL_ERROR", label: "모델 오류" },
+];
 
 export function SelectedCaseCommentsPanel({
   projectId,
@@ -11,6 +21,10 @@ export function SelectedCaseCommentsPanel({
   caseId: string | null;
 }) {
   const [content, setContent] = useState("");
+  const [reviewStatus, setReviewStatus] =
+    useState<CaseReviewStatus>("NOT_REVIEWED");
+  const [tagsText, setTagsText] = useState("");
+  const [reviewNote, setReviewNote] = useState("");
   const [status, setStatus] = useState<
     "idle" | "loading" | "dirty" | "saving" | "saved" | "error"
   >("idle");
@@ -36,13 +50,23 @@ export function SelectedCaseCommentsPanel({
           throw new Error("Comments를 불러오지 못했습니다.");
         }
 
-        const payload = (await response.json()) as { content?: unknown };
+        const payload = (await response.json()) as {
+          content?: unknown;
+          reviewState?: {
+            status?: CaseReviewStatus;
+            tags?: string[];
+            note?: string;
+          };
+        };
 
         if (disposed) {
           return;
         }
 
         setContent(typeof payload.content === "string" ? payload.content : "");
+        setReviewStatus(payload.reviewState?.status ?? "NOT_REVIEWED");
+        setTagsText((payload.reviewState?.tags ?? []).join(", "));
+        setReviewNote(payload.reviewState?.note ?? "");
         setStatus("idle");
       } catch (error) {
         if (disposed) {
@@ -77,7 +101,17 @@ export function SelectedCaseCommentsPanel({
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content }),
+          body: JSON.stringify({
+            content,
+            reviewState: {
+              status: reviewStatus,
+              tags: tagsText
+                .split(",")
+                .map((tag) => tag.trim())
+                .filter(Boolean),
+              note: reviewNote,
+            },
+          }),
         }
       );
 
@@ -121,7 +155,7 @@ export function SelectedCaseCommentsPanel({
                   ? "저장 완료"
                   : status === "error"
                     ? message || "저장 실패"
-                    : "현재 이미지에 대한 comments를 남깁니다."}
+            : "현재 이미지에 대한 comments와 review 상태를 남깁니다."}
         </p>
         <button
           type="button"
@@ -133,6 +167,57 @@ export function SelectedCaseCommentsPanel({
           {status === "saving" ? "저장 중" : "저장"}
         </button>
       </div>
+      <section className="mt-3 rounded-xl border border-white/10 bg-[#111]/55 p-3">
+        <div className="flex items-center gap-2 text-sm font-semibold text-white">
+          <Flag className="h-4 w-4 text-amber-100" />
+          Review 상태
+        </div>
+        <div className="mt-3 grid gap-2">
+          <select
+            value={reviewStatus}
+            onChange={(event) => {
+              setReviewStatus(event.currentTarget.value as CaseReviewStatus);
+              setStatus("dirty");
+              setMessage("");
+            }}
+            disabled={!caseId || status === "loading" || status === "saving"}
+            className="h-9 rounded-md border border-white/10 bg-[#111] px-2 text-sm text-white outline-none focus:border-teal-200/50 disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            {reviewStatusOptions.map((option) => (
+              <option
+                key={option.value}
+                value={option.value}
+                className="bg-[#202020] text-white"
+              >
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <input
+            value={tagsText}
+            onChange={(event) => {
+              setTagsText(event.currentTarget.value);
+              setStatus("dirty");
+              setMessage("");
+            }}
+            disabled={!caseId || status === "loading" || status === "saving"}
+            placeholder="태그를 쉼표로 구분"
+            className="h-9 rounded-md border border-white/10 bg-[#111] px-2 text-sm text-white outline-none placeholder:text-white/28 focus:border-teal-200/50 disabled:cursor-not-allowed disabled:opacity-45"
+          />
+          <textarea
+            value={reviewNote}
+            onChange={(event) => {
+              setReviewNote(event.currentTarget.value);
+              setStatus("dirty");
+              setMessage("");
+            }}
+            disabled={!caseId || status === "loading" || status === "saving"}
+            rows={3}
+            placeholder="Review 상태 메모"
+            className="resize-none rounded-md border border-white/10 bg-[#111] px-2 py-2 text-sm text-white outline-none placeholder:text-white/28 focus:border-teal-200/50 disabled:cursor-not-allowed disabled:opacity-45"
+          />
+        </div>
+      </section>
       <textarea
         value={caseId ? content : ""}
         onChange={(event) => {

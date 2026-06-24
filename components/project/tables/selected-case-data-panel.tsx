@@ -17,7 +17,6 @@ import type {
 import type { AnnotationVersion } from "@/components/project/image-viewer/use-image-annotations";
 import { SelectedCaseAnnotationPanel } from "@/components/project/tables/selected-case-annotation-panel";
 import { SelectedCaseCommentsPanel } from "@/components/project/tables/selected-case-comments-panel";
-import { SelectedCaseReviewStatePanel } from "@/components/project/tables/selected-case-review-state-panel";
 
 type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
 type SelectedDataSection = "clinical" | "prediction" | "annotation" | "comments";
@@ -350,11 +349,6 @@ export function SelectedCaseDataPanel({
           </button>
         ))}
       </nav>
-
-      <SelectedCaseReviewStatePanel
-        projectId={projectId}
-        caseId={caseRow?.id ?? null}
-      />
 
       <div className="mt-5 min-h-0 2xl:h-[620px]">
         {activeSection === "clinical" && (
