@@ -8,6 +8,9 @@ export type CaseRow = {
   clinicalData: Record<string, string>;
   predictionData: Record<string, string>;
   editablePredictionColumns: string[];
+  reviewStatus?: CaseReviewStatus;
+  reviewTags?: string[];
+  reviewNote?: string | null;
   predictionEdits: Array<{
     userId: string;
     userName: string;
@@ -33,9 +36,19 @@ export type Point = {
   y: number;
 };
 
-export type RectangleAnnotation = {
+export type AnnotationSource = "human" | "model" | "consensus";
+
+export type AnnotationMetadata = {
   id: string;
   name?: string;
+  label?: string;
+  color?: string;
+  source?: AnnotationSource;
+  confidence?: number;
+  modelRunId?: string;
+};
+
+export type RectangleAnnotation = AnnotationMetadata & {
   type: "rectangle";
   x: number;
   y: number;
@@ -43,14 +56,19 @@ export type RectangleAnnotation = {
   height: number;
 };
 
-export type PolygonAnnotation = {
-  id: string;
-  name?: string;
+export type PolygonAnnotation = AnnotationMetadata & {
   type: "polygon";
   points: Point[];
 };
 
 export type ImageAnnotation = RectangleAnnotation | PolygonAnnotation;
+
+export type CaseReviewStatus =
+  | "NOT_REVIEWED"
+  | "IN_PROGRESS"
+  | "NEEDS_FIX"
+  | "CONSENSUS_DONE"
+  | "MODEL_ERROR";
 
 export type ToolMode = "select" | "move" | "rectangle" | "polygon";
 

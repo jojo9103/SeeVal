@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 
 import { requireUser } from "@/lib/auth";
 import { normalizeAnnotations } from "@/lib/project-annotations";
@@ -21,6 +22,7 @@ async function requireProjectAccess(projectId: string, caseId: string) {
         deletedAt: null,
         OR: [
           { ownerId: user.id },
+          ...(user.role === "ADMIN" ? [{ id: projectId }] : []),
           {
             shares: {
               some: {
@@ -47,17 +49,37 @@ export async function GET(_request: Request, { params }: RouteContext) {
     const { projectId, caseId } = await params;
 
     const user = await requireProjectAccess(projectId, caseId);
-    const annotation = await prisma.projectCaseAnnotation.findUnique({
-      where: {
-        caseId_userId: {
-          caseId,
-          userId: user.id,
+    const requestUrl = new URL(_request.url);
+    const includeHistory = requestUrl.searchParams.get("history") === "1";
+    const [annotation, versions] = await Promise.all([
+      prisma.projectCaseAnnotation.findUnique({
+        where: {
+          caseId_userId: {
+            caseId,
+            userId: user.id,
+          },
         },
-      },
-    });
+      }),
+      includeHistory
+        ? prisma.projectAnnotationVersion.findMany({
+            where: {
+              caseId,
+              userId: user.id,
+            },
+            orderBy: { createdAt: "desc" },
+            take: 20,
+          })
+        : Promise.resolve([]),
+    ]);
 
     return NextResponse.json({
       annotations: normalizeAnnotations(annotation?.annotations),
+      versions: versions.map((version) => ({
+        id: version.id,
+        summary: version.summary,
+        createdAt: version.createdAt.toISOString(),
+        annotations: normalizeAnnotations(version.annotations),
+      })),
     });
   } catch (error) {
     return NextResponse.json(
@@ -79,23 +101,54 @@ export async function PUT(request: Request, { params }: RouteContext) {
     const body = (await request.json()) as { annotations?: unknown };
 
     const user = await requireProjectAccess(projectId, caseId);
-
-    await prisma.projectCaseAnnotation.upsert({
+    const nextAnnotations = normalizeAnnotations(body.annotations);
+    const previousAnnotation = await prisma.projectCaseAnnotation.findUnique({
       where: {
         caseId_userId: {
           caseId,
           userId: user.id,
         },
       },
-      create: {
-        caseId,
-        userId: user.id,
-        annotations: normalizeAnnotations(body.annotations),
-      },
-      update: {
-        annotations: normalizeAnnotations(body.annotations),
-      },
+      select: { annotations: true },
     });
+    const previousAnnotations = normalizeAnnotations(
+      previousAnnotation?.annotations
+    );
+    const didChange =
+      JSON.stringify(previousAnnotations) !== JSON.stringify(nextAnnotations);
+
+    await prisma.$transaction([
+      prisma.projectCaseAnnotation.upsert({
+        where: {
+          caseId_userId: {
+            caseId,
+            userId: user.id,
+          },
+        },
+        create: {
+          caseId,
+          userId: user.id,
+          annotations: nextAnnotations,
+        },
+        update: {
+          annotations: nextAnnotations,
+        },
+      }),
+      ...(didChange
+        ? [
+            prisma.projectAnnotationVersion.create({
+              data: {
+                caseId,
+                userId: user.id,
+                annotations: nextAnnotations,
+                summary: `${previousAnnotations.length} → ${nextAnnotations.length} annotations`,
+              },
+            }),
+          ]
+        : []),
+    ]);
+
+    revalidatePath(`/workspace/projects/${projectId}/review`);
 
     return NextResponse.json({ ok: true });
   } catch (error) {

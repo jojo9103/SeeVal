@@ -1,19 +1,30 @@
 "use client";
 
-import { Pentagon, Square } from "lucide-react";
+import { Bot, Pentagon, Square, Users } from "lucide-react";
 
-import type { ImageAnnotation } from "@/components/project/types";
+import type { AnnotationSource, ImageAnnotation } from "@/components/project/types";
+
+const sourceOptions: Array<{ value: AnnotationSource; label: string }> = [
+  { value: "human", label: "Human" },
+  { value: "model", label: "Model" },
+  { value: "consensus", label: "Consensus" },
+];
 
 export function AnnotationList({
   annotations,
   selectedAnnotationId,
   onSelect,
   onRename,
+  onUpdateMetadata,
 }: {
   annotations: ImageAnnotation[];
   selectedAnnotationId: string | null;
   onSelect: (annotationId: string) => void;
   onRename: (annotationId: string, name: string) => void;
+  onUpdateMetadata?: (
+    annotationId: string,
+    metadata: Partial<Pick<ImageAnnotation, "label" | "source" | "confidence">>
+  ) => void;
 }) {
   return (
     <aside className="mt-4 rounded-xl border border-white/10 bg-[#171717]/55 p-4">
@@ -91,6 +102,80 @@ export function AnnotationList({
                     annotation.height
                   )}`}
             </p>
+            <div className="mt-3 grid gap-2">
+              <input
+                value={annotation.label ?? ""}
+                aria-label="Annotation label"
+                placeholder="Label"
+                onChange={(event) =>
+                  onUpdateMetadata?.(annotation.id, {
+                    label: event.target.value,
+                  })
+                }
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+                className="min-w-0 rounded-md border border-white/10 bg-[#111] px-2 py-1 text-xs text-white outline-none placeholder:text-white/28 focus:border-teal-200/50"
+              />
+              <div className="grid grid-cols-[minmax(0,1fr)_88px] gap-2">
+                <label className="relative">
+                  <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-white/38">
+                    {annotation.source === "model" ? (
+                      <Bot className="h-3.5 w-3.5" />
+                    ) : annotation.source === "consensus" ? (
+                      <Users className="h-3.5 w-3.5" />
+                    ) : (
+                      <Square className="h-3.5 w-3.5" />
+                    )}
+                  </span>
+                  <select
+                    value={annotation.source ?? "human"}
+                    aria-label="Annotation source"
+                    onChange={(event) =>
+                      onUpdateMetadata?.(annotation.id, {
+                        source: event.target.value as AnnotationSource,
+                      })
+                    }
+                    onClick={(event) => event.stopPropagation()}
+                    className="h-8 w-full rounded-md border border-white/10 bg-[#111] pl-8 pr-2 text-xs text-white outline-none focus:border-teal-200/50"
+                  >
+                    {sourceOptions.map((option) => (
+                      <option
+                        key={option.value}
+                        value={option.value}
+                        className="bg-[#202020] text-white"
+                      >
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <input
+                  value={
+                    typeof annotation.confidence === "number"
+                      ? String(annotation.confidence)
+                      : ""
+                  }
+                  aria-label="Annotation confidence"
+                  placeholder="Conf."
+                  inputMode="decimal"
+                  onChange={(event) => {
+                    const value = event.target.value.trim();
+                    const confidence = value === "" ? undefined : Number(value);
+
+                    onUpdateMetadata?.(annotation.id, {
+                      confidence:
+                        typeof confidence === "number" &&
+                        Number.isFinite(confidence)
+                        ? Math.min(Math.max(confidence, 0), 1)
+                        : undefined,
+                    });
+                  }}
+                  onClick={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => event.stopPropagation()}
+                  className="h-8 min-w-0 rounded-md border border-white/10 bg-[#111] px-2 text-xs text-white outline-none placeholder:text-white/28 focus:border-teal-200/50"
+                />
+              </div>
+            </div>
           </article>
         ))}
       </div>

@@ -6,6 +6,11 @@ export type AnnotationPoint = {
 export type RectangleAnnotation = {
   id: string;
   name?: string;
+  label?: string;
+  color?: string;
+  source?: "human" | "model" | "consensus";
+  confidence?: number;
+  modelRunId?: string;
   type: "rectangle";
   x: number;
   y: number;
@@ -16,11 +21,45 @@ export type RectangleAnnotation = {
 export type PolygonAnnotation = {
   id: string;
   name?: string;
+  label?: string;
+  color?: string;
+  source?: "human" | "model" | "consensus";
+  confidence?: number;
+  modelRunId?: string;
   type: "polygon";
   points: AnnotationPoint[];
 };
 
 export type ImageAnnotation = RectangleAnnotation | PolygonAnnotation;
+
+function normalizeAnnotationMetadata(item: Partial<ImageAnnotation>) {
+  const source =
+    item.source === "human" ||
+    item.source === "model" ||
+    item.source === "consensus"
+      ? item.source
+      : undefined;
+  const confidence =
+    typeof item.confidence === "number" && Number.isFinite(item.confidence)
+      ? Math.min(Math.max(item.confidence, 0), 1)
+      : undefined;
+
+  return {
+    name: typeof item.name === "string" ? item.name.slice(0, 120) : undefined,
+    label:
+      typeof item.label === "string" ? item.label.trim().slice(0, 80) : undefined,
+    color:
+      typeof item.color === "string" && /^#[0-9a-f]{6}$/i.test(item.color)
+        ? item.color
+        : undefined,
+    source,
+    confidence,
+    modelRunId:
+      typeof item.modelRunId === "string"
+        ? item.modelRunId.slice(0, 120)
+        : undefined,
+  };
+}
 
 function isPoint(value: unknown): value is AnnotationPoint {
   return (
@@ -57,7 +96,7 @@ export function normalizeAnnotations(value: unknown): ImageAnnotation[] {
       return [
         {
           id: item.id,
-          name: typeof item.name === "string" ? item.name : undefined,
+          ...normalizeAnnotationMetadata(item),
           type: "rectangle",
           x: item.x,
           y: item.y,
@@ -75,7 +114,7 @@ export function normalizeAnnotations(value: unknown): ImageAnnotation[] {
       return [
         {
           id: item.id,
-          name: typeof item.name === "string" ? item.name : undefined,
+          ...normalizeAnnotationMetadata(item),
           type: "polygon",
           points: item.points,
         },

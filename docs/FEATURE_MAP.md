@@ -90,10 +90,12 @@
   - SVG 위의 rectangle/polygon 렌더링, 선택, resize handle, polygon point handle을 담당합니다.
 
 - `components/project/image-viewer/annotation-list.tsx`
-  - Image Viewer 하단 annotation 목록과 annotation 이름 수정을 담당합니다.
+  - Image Viewer 하단 annotation 목록과 annotation 이름/label/source/confidence 수정을 담당합니다.
+  - `source`는 `human`, `model`, `consensus`를 지원해 사람 annotation, 모델 결과 import, 합의 annotation을 같은 JSON 구조로 비교할 수 있습니다.
 
 - `components/project/image-viewer/use-image-annotations.ts`
   - 사용자별 annotation 불러오기와 debounce 저장을 담당합니다.
+  - 현재 케이스의 최근 annotation 저장 이력 20개를 함께 불러와 복구 UI에 전달합니다.
 
 - `components/project/image-viewer/geometry.ts`
   - annotation 좌표 계산 유틸입니다.
@@ -102,6 +104,8 @@
 - `app/api/projects/[projectId]/cases/[caseId]/annotations/route.ts`
   - 사용자별 annotation 저장/불러오기 API입니다.
   - DB의 `ProjectCaseAnnotation` 모델을 사용합니다.
+  - `?history=1` query로 현재 사용자의 최근 저장 이력을 함께 반환합니다.
+  - 저장 시 이전 annotation 배열과 달라진 경우에만 `ProjectAnnotationVersion` row를 추가해 DB row 증가를 줄입니다.
 
 ## Data Tables
 
@@ -138,6 +142,13 @@
   - 현재 선택된 case의 annotation 목록을 보여주고 이름 수정, 선택 삭제, 명시 저장, annotation 선택을 처리합니다.
   - 목록의 객체 카드를 누르면 Image Viewer에서 해당 annotation이 선택 표시되고 중심 위치로 이동합니다.
   - annotation 생성/도형 편집/저장은 기존 Image Viewer와 공유 상태를 통해 계속 동작합니다.
+  - 최근 저장 이력을 표시하고, 특정 이력의 annotation 배열을 현재 화면으로 복구할 수 있습니다. 복구 후 저장 버튼으로 확정합니다.
+
+- `components/project/tables/selected-case-review-state-panel.tsx`
+  - 선택된 case의 현재 사용자 review 상태를 담당합니다.
+  - 상태값: `미검토`, `검토 중`, `수정 필요`, `합의 완료`, `모델 오류`.
+  - 태그와 메모를 함께 저장합니다.
+  - 케이스가 바뀔 때만 읽고 저장 버튼으로 갱신해, 별도 realtime/polling 비용 없이 운영됩니다.
 
 - `components/project/tables/selected-case-comments-panel.tsx`
   - 선택된 데이터 패널의 `Comments` 탭 내용을 담당합니다.
@@ -199,9 +210,11 @@
   - 평가 취합 페이지에서 환자별 annotation 요약과 이미지 overlay 취합을 담당합니다.
   - 환자별로 annotation 개수와 사용자별 개수를 짧게 보여주고, 선택한 환자의 이미지 위에 여러 사용자의 rectangle/polygon을 색상별로 함께 표시합니다.
   - annotation 좌표는 저장된 이미지 원본 pixel 좌표를 그대로 사용해 overlay합니다.
+  - 환자별 annotator 간 평균 IoU를 브라우저에서 계산해 표시합니다. polygon은 현재 bounding box 기준의 경량 IoU로 계산합니다.
   - `샘플 JSON` 버튼은 현재 선택된 샘플의 annotations를 다운로드합니다.
   - `전체 JSON` 버튼은 전체 샘플의 annotations를 다운로드합니다.
   - 다운로드 시 `사용자별 데이터 포함`은 사용자별 원본 annotations를 유지하고, `통합 공통 annotation만`은 같은 geometry가 모든 annotator에게 존재하는 annotation만 내보냅니다.
+  - `Majority consensus JSON`은 label이 같고 IoU 0.5 이상으로 묶이는 annotation cluster 중 과반 이상 사용자가 투표한 annotation을 consensus로 내보냅니다.
 
 - `components/project-comments-review-viewer.tsx`
   - 평가 취합 페이지의 `Comments 취합` 탭을 담당합니다.
@@ -299,6 +312,17 @@
 - `app/api/projects/[projectId]/review/comments/route.ts`
   - Review의 `Comments 취합` 탭용 데이터를 lazy load합니다.
   - Review 초기 페이지 로딩에서 comments 전체를 제외해 첫 응답을 가볍게 유지합니다.
+
+- `app/api/projects/[projectId]/cases/[caseId]/review-state/route.ts`
+  - 현재 사용자의 case별 review 상태를 저장/불러오기 API입니다.
+  - DB의 `ProjectCaseReviewState` 모델을 사용합니다.
+  - 프로젝트 owner, ADMIN, 공유 승인된 USER가 본인 상태를 저장할 수 있습니다.
+
+- `app/api/projects/[projectId]/model-runs/route.ts`
+  - 모델 결과 공유를 위한 lightweight model run registry API입니다.
+  - DB의 `ProjectModelRun` 모델을 사용합니다.
+  - 모델명, 버전, threshold, metadata만 저장하며 이미지/대용량 결과 파일은 별도로 저장하지 않습니다.
+  - 이후 prediction table, annotation import, 외부 모델 결과를 같은 project 안에서 추적하기 위한 기반입니다.
 
 - `app/api/project-files/[projectId]/[...filePath]/route.ts`
   - 업로드된 프로젝트 파일을 권한 확인 후 제공합니다.

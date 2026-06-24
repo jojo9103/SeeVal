@@ -80,6 +80,10 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
               },
             },
           },
+          reviewStates: {
+            where: { userId: user.id },
+            take: 1,
+          },
         },
         orderBy: { createdAt: "desc" },
       },
@@ -133,6 +137,9 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     clinicalData: toStringRecord(projectCase.clinicalData),
     predictionData: toStringRecord(projectCase.predictionData),
     editablePredictionColumns,
+    reviewStatus: projectCase.reviewStates[0]?.status ?? "NOT_REVIEWED",
+    reviewTags: toStringArray(projectCase.reviewStates[0]?.tags),
+    reviewNote: projectCase.reviewStates[0]?.note ?? null,
     predictionEdits: projectCase.predictionEdits.map((edit) => ({
       userId: edit.userId,
       userName: edit.user.name,

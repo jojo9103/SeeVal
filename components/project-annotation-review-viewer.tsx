@@ -6,6 +6,9 @@ type ReviewAnnotation =
   | {
       id: string;
       name?: string;
+      label?: string;
+      source?: "human" | "model" | "consensus";
+      confidence?: number;
       type: "rectangle";
       x: number;
       y: number;
@@ -15,6 +18,9 @@ type ReviewAnnotation =
   | {
       id: string;
       name?: string;
+      label?: string;
+      source?: "human" | "model" | "consensus";
+      confidence?: number;
       type: "polygon";
       points: Array<{ x: number; y: number }>;
     };
@@ -47,7 +53,7 @@ const overlayColors = [
 ];
 
 type AnnotationExportTarget = "sample" | "all" | null;
-type AnnotationExportMode = "byUser" | "common";
+type AnnotationExportMode = "byUser" | "common" | "consensus";
 
 function annotationName(annotation: ReviewAnnotation, index: number) {
   return (
@@ -65,6 +71,88 @@ function annotationCount(row: AnnotationReviewRow) {
     (count, userAnnotation) => count + userAnnotation.annotations.length,
     0
   );
+}
+
+function annotationLabel(annotation: ReviewAnnotation) {
+  return annotation.label?.trim() || annotation.name?.trim() || annotation.type;
+}
+
+function annotationBounds(annotation: ReviewAnnotation) {
+  if (annotation.type === "rectangle") {
+    return {
+      x1: annotation.x,
+      y1: annotation.y,
+      x2: annotation.x + annotation.width,
+      y2: annotation.y + annotation.height,
+    };
+  }
+
+  const xs = annotation.points.map((point) => point.x);
+  const ys = annotation.points.map((point) => point.y);
+
+  return {
+    x1: Math.min(...xs),
+    y1: Math.min(...ys),
+    x2: Math.max(...xs),
+    y2: Math.max(...ys),
+  };
+}
+
+function annotationIou(first: ReviewAnnotation, second: ReviewAnnotation) {
+  const firstBounds = annotationBounds(first);
+  const secondBounds = annotationBounds(second);
+  const intersectionWidth = Math.max(
+    0,
+    Math.min(firstBounds.x2, secondBounds.x2) -
+      Math.max(firstBounds.x1, secondBounds.x1)
+  );
+  const intersectionHeight = Math.max(
+    0,
+    Math.min(firstBounds.y2, secondBounds.y2) -
+      Math.max(firstBounds.y1, secondBounds.y1)
+  );
+  const intersectionArea = intersectionWidth * intersectionHeight;
+  const firstArea = Math.max(0, firstBounds.x2 - firstBounds.x1) *
+    Math.max(0, firstBounds.y2 - firstBounds.y1);
+  const secondArea = Math.max(0, secondBounds.x2 - secondBounds.x1) *
+    Math.max(0, secondBounds.y2 - secondBounds.y1);
+  const unionArea = firstArea + secondArea - intersectionArea;
+
+  return unionArea > 0 ? intersectionArea / unionArea : 0;
+}
+
+function rowAgreement(row: AnnotationReviewRow) {
+  const users = activeAnnotationUsers(row);
+  const scores: number[] = [];
+
+  for (let firstIndex = 0; firstIndex < users.length; firstIndex += 1) {
+    for (
+      let secondIndex = firstIndex + 1;
+      secondIndex < users.length;
+      secondIndex += 1
+    ) {
+      const firstAnnotations = users[firstIndex].annotations;
+      const secondAnnotations = users[secondIndex].annotations;
+
+      for (const annotation of firstAnnotations) {
+        const candidates = secondAnnotations.filter(
+          (candidate) => annotationLabel(candidate) === annotationLabel(annotation)
+        );
+        const bestScore = Math.max(
+          0,
+          ...candidates.map((candidate) => annotationIou(annotation, candidate))
+        );
+
+        scores.push(bestScore);
+      }
+    }
+  }
+
+  if (scores.length === 0) {
+    return null;
+  }
+
+  return scores.reduce((sum, score) => sum + score, 0) / scores.length;
 }
 
 function activeAnnotationUsers(row: AnnotationReviewRow) {
@@ -221,6 +309,61 @@ function buildCommonSample(row: AnnotationReviewRow) {
   };
 }
 
+function buildConsensusSample(row: AnnotationReviewRow) {
+  const annotatingUsers = activeAnnotationUsers(row);
+  const requiredVotes = Math.max(1, Math.ceil(annotatingUsers.length / 2));
+  const clusters: Array<{
+    annotation: ReviewAnnotation;
+    voters: Set<string>;
+    members: ReviewAnnotation[];
+  }> = [];
+
+  for (const userAnnotation of annotatingUsers) {
+    for (const annotation of userAnnotation.annotations) {
+      const label = annotationLabel(annotation);
+      const cluster = clusters.find(
+        (candidate) =>
+          annotationLabel(candidate.annotation) === label &&
+          annotationIou(candidate.annotation, annotation) >= 0.5 &&
+          !candidate.voters.has(userAnnotation.userId)
+      );
+
+      if (cluster) {
+        cluster.voters.add(userAnnotation.userId);
+        cluster.members.push(annotation);
+        continue;
+      }
+
+      clusters.push({
+        annotation: {
+          ...annotation,
+          source: "consensus",
+        },
+        voters: new Set([userAnnotation.userId]),
+        members: [annotation],
+      });
+    }
+  }
+
+  return {
+    caseId: row.id,
+    registrationNumber: row.registrationNumber,
+    imageId: row.imageId,
+    imageFileName: row.imageFileName,
+    consensusRule: {
+      minimumVotes: requiredVotes,
+      iouThreshold: 0.5,
+    },
+    annotations: clusters
+      .filter((cluster) => cluster.voters.size >= requiredVotes)
+      .map((cluster) => ({
+        annotation: cluster.annotation,
+        votes: cluster.voters.size,
+        memberCount: cluster.members.length,
+      })),
+  };
+}
+
 function buildAnnotationExportPayload({
   rows,
   mode,
@@ -237,7 +380,9 @@ function buildAnnotationExportPayload({
     samples:
       mode === "byUser"
         ? rows.map(buildByUserSample)
-        : rows.map(buildCommonSample),
+        : mode === "common"
+          ? rows.map(buildCommonSample)
+          : rows.map(buildConsensusSample),
   };
 }
 
@@ -289,7 +434,8 @@ export function ProjectAnnotationReviewViewer({
               selectedRow.registrationNumber
           )
         : "all-samples";
-    const modeName = mode === "byUser" ? "by-user" : "common";
+    const modeName =
+      mode === "byUser" ? "by-user" : mode === "common" ? "common" : "consensus";
 
     downloadJson(`annotations-${targetName}-${modeName}.json`, payload);
     setExportTarget(null);
@@ -335,7 +481,7 @@ export function ProjectAnnotationReviewViewer({
               </p>
               <p className="mt-1 text-xs leading-5 text-white/48">
                 사용자별 원본 데이터 또는 모든 annotator에게 공통으로 존재하는
-                geometry만 저장합니다.
+                geometry, majority consensus를 저장합니다.
               </p>
               <div className="mt-3 grid gap-2">
                 <button
@@ -355,6 +501,18 @@ export function ProjectAnnotationReviewViewer({
                   className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2 text-left text-sm text-white/78 transition hover:bg-white/[0.09]"
                 >
                   통합 공통 annotation만
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    exportAnnotations({
+                      target: exportTarget,
+                      mode: "consensus",
+                    })
+                  }
+                  className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2 text-left text-sm text-white/78 transition hover:bg-white/[0.09]"
+                >
+                  Majority consensus JSON
                 </button>
               </div>
             </div>
@@ -396,6 +554,12 @@ export function ProjectAnnotationReviewViewer({
                   </p>
                   <p className="mt-2 line-clamp-2 text-xs text-white/54">
                     {userSummary(row)}
+                  </p>
+                  <p className="mt-1 text-xs text-white/42">
+                    평균 IoU{" "}
+                    {rowAgreement(row) === null
+                      ? "-"
+                      : `${Math.round((rowAgreement(row) ?? 0) * 100)}%`}
                   </p>
                 </button>
               );
@@ -485,6 +649,8 @@ export function ProjectAnnotationReviewViewer({
                                 <title>
                                   {userAnnotation.userName} -{" "}
                                   {annotationName(annotation, index)}
+                                  {annotation.label ? ` / ${annotation.label}` : ""}
+                                  {annotation.source ? ` / ${annotation.source}` : ""}
                                 </title>
                               </g>
                             );
@@ -502,6 +668,8 @@ export function ProjectAnnotationReviewViewer({
                               <title>
                                 {userAnnotation.userName} -{" "}
                                 {annotationName(annotation, index)}
+                                {annotation.label ? ` / ${annotation.label}` : ""}
+                                {annotation.source ? ` / ${annotation.source}` : ""}
                               </title>
                             </g>
                           );

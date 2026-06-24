@@ -51,6 +51,20 @@ enum ColumnDataType {
   bool
 }
 
+enum CaseReviewStatus {
+  NOT_REVIEWED
+  IN_PROGRESS
+  NEEDS_FIX
+  CONSENSUS_DONE
+  MODEL_ERROR
+}
+
+enum ModelRunKind {
+  PREDICTION_TABLE
+  ANNOTATION_IMPORT
+  EXTERNAL_RESULT
+}
+
 model User {
   id             String    @id @default(cuid())
   email          String    @unique
@@ -72,6 +86,9 @@ model User {
   caseComments    ProjectCaseComment[]
   predictionEdits ProjectCasePredictionEdit[]
   reviewCheckpoints ProjectReviewCheckpoint[]
+  annotationVersions ProjectAnnotationVersion[]
+  caseReviewStates ProjectCaseReviewState[]
+  modelRuns       ProjectModelRun[]
   adminNotices    AdminNotice[]   @relation("AdminNoticeAuthor")
   adminNoticeReceipts AdminNoticeReceipt[]
 
@@ -125,6 +142,8 @@ model Project {
   cases       ProjectCase[]
   columnMetadata ProjectColumnMetadata[]
   reviewCheckpoints ProjectReviewCheckpoint[]
+  modelRuns   ProjectModelRun[]
+  caseReviewStates ProjectCaseReviewState[]
 
   @@index([ownerId, createdAt])
   @@index([deletedAt])
@@ -184,8 +203,10 @@ model ProjectCase {
   imageFileId        String?
   imageFile          ProjectFile? @relation(fields: [imageFileId], references: [id], onDelete: SetNull)
   annotations        ProjectCaseAnnotation[]
+  annotationVersions ProjectAnnotationVersion[]
   comments           ProjectCaseComment[]
   predictionEdits    ProjectCasePredictionEdit[]
+  reviewStates       ProjectCaseReviewState[]
 
   @@index([projectId])
   @@index([projectId, createdAt])
@@ -209,6 +230,60 @@ model ProjectCaseAnnotation {
   @@unique([caseId, userId])
   @@index([caseId, userId])
   @@index([userId])
+}
+
+model ProjectAnnotationVersion {
+  id          String      @id @default(cuid())
+  annotations Json
+  summary     String?
+  createdAt   DateTime    @default(now())
+
+  caseId      String
+  case        ProjectCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([caseId, userId, createdAt])
+  @@index([userId, createdAt])
+}
+
+model ProjectCaseReviewState {
+  id          String           @id @default(cuid())
+  status      CaseReviewStatus @default(NOT_REVIEWED)
+  tags        Json             @default("[]")
+  note        String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  projectId   String
+  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  caseId      String
+  case        ProjectCase      @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([caseId, userId])
+  @@index([projectId, status])
+  @@index([userId, status])
+}
+
+model ProjectModelRun {
+  id          String       @id @default(cuid())
+  name        String
+  kind        ModelRunKind @default(EXTERNAL_RESULT)
+  modelName   String?
+  modelVersion String?
+  threshold   Float?
+  metadata    Json         @default("{}")
+  createdAt   DateTime     @default(now())
+
+  projectId   String
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User         @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([createdById, createdAt])
 }
 
 model ProjectCaseComment {

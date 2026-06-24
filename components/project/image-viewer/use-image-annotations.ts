@@ -5,6 +5,13 @@ import { useEffect, useRef, useState } from "react";
 import type { ImageAnnotation } from "@/components/project/types";
 import { isAnnotationArray } from "@/components/project/image-viewer/geometry";
 
+export type AnnotationVersion = {
+  id: string;
+  summary: string | null;
+  createdAt: string;
+  annotations: ImageAnnotation[];
+};
+
 export function useImageAnnotations({
   caseId,
   projectId,
@@ -14,6 +21,7 @@ export function useImageAnnotations({
 }) {
   const saveTimerRef = useRef<number | null>(null);
   const [annotations, setAnnotations] = useState<ImageAnnotation[]>([]);
+  const [versions, setVersions] = useState<AnnotationVersion[]>([]);
   const [loadedCaseId, setLoadedCaseId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -25,14 +33,17 @@ export function useImageAnnotations({
 
     async function loadAnnotations() {
       const response = await fetch(
-        `/api/projects/${projectId}/cases/${caseId}/annotations`
+        `/api/projects/${projectId}/cases/${caseId}/annotations?history=1`
       );
 
       if (!response.ok || disposed) {
         return;
       }
 
-      const payload = (await response.json()) as { annotations?: unknown };
+      const payload = (await response.json()) as {
+        annotations?: unknown;
+        versions?: AnnotationVersion[];
+      };
 
       if (disposed) {
         return;
@@ -41,6 +52,7 @@ export function useImageAnnotations({
       setAnnotations(
         isAnnotationArray(payload.annotations) ? payload.annotations : []
       );
+      setVersions(Array.isArray(payload.versions) ? payload.versions : []);
       setLoadedCaseId(caseId);
     }
 
@@ -97,7 +109,22 @@ export function useImageAnnotations({
     if (!response.ok) {
       throw new Error("Annotations를 저장하지 못했습니다.");
     }
+
+    const historyResponse = await fetch(
+      `/api/projects/${projectId}/cases/${caseId}/annotations?history=1`
+    );
+
+    if (historyResponse.ok) {
+      const payload = (await historyResponse.json()) as {
+        versions?: AnnotationVersion[];
+      };
+      setVersions(Array.isArray(payload.versions) ? payload.versions : []);
+    }
   }
 
-  return { annotations, setAnnotations, saveAnnotations };
+  function restoreAnnotations(nextAnnotations: ImageAnnotation[]) {
+    setAnnotations(nextAnnotations);
+  }
+
+  return { annotations, setAnnotations, saveAnnotations, versions, restoreAnnotations };
 }

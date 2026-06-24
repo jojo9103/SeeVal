@@ -14,8 +14,10 @@ import type {
   ImageAnnotation,
   ColumnMetadata,
 } from "@/components/project/types";
+import type { AnnotationVersion } from "@/components/project/image-viewer/use-image-annotations";
 import { SelectedCaseAnnotationPanel } from "@/components/project/tables/selected-case-annotation-panel";
 import { SelectedCaseCommentsPanel } from "@/components/project/tables/selected-case-comments-panel";
+import { SelectedCaseReviewStatePanel } from "@/components/project/tables/selected-case-review-state-panel";
 
 type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
 type SelectedDataSection = "clinical" | "prediction" | "annotation" | "comments";
@@ -41,8 +43,11 @@ export function SelectedCaseDataPanel({
   selectedAnnotationId,
   onSelectAnnotation,
   onRenameAnnotation,
+  onUpdateAnnotationMetadata,
   onDeleteSelectedAnnotation,
   onSaveAnnotations,
+  annotationVersions,
+  onRestoreAnnotationVersion,
 }: {
   projectId: string;
   currentUserId: string;
@@ -54,8 +59,14 @@ export function SelectedCaseDataPanel({
   selectedAnnotationId: string | null;
   onSelectAnnotation: (annotationId: string) => void;
   onRenameAnnotation: (annotationId: string, name: string) => void;
+  onUpdateAnnotationMetadata: (
+    annotationId: string,
+    metadata: Partial<Pick<ImageAnnotation, "label" | "source" | "confidence">>
+  ) => void;
   onDeleteSelectedAnnotation: () => void;
   onSaveAnnotations: () => Promise<void>;
+  annotationVersions: AnnotationVersion[];
+  onRestoreAnnotationVersion: (annotations: ImageAnnotation[]) => void;
 }) {
   const [activeSection, setActiveSection] =
     useState<SelectedDataSection>("clinical");
@@ -293,6 +304,11 @@ export function SelectedCaseDataPanel({
         ))}
       </nav>
 
+      <SelectedCaseReviewStatePanel
+        projectId={projectId}
+        caseId={caseRow?.id ?? null}
+      />
+
       <div className="mt-5 min-h-0 2xl:h-[620px]">
         {activeSection === "clinical" && (
           <section className="min-h-0 2xl:h-full">
@@ -458,8 +474,11 @@ export function SelectedCaseDataPanel({
                 selectedAnnotationId={selectedAnnotationId}
                 onSelect={onSelectAnnotation}
                 onRename={onRenameAnnotation}
+                onUpdateMetadata={onUpdateAnnotationMetadata}
                 onDeleteSelected={onDeleteSelectedAnnotation}
                 onSave={onSaveAnnotations}
+                versions={annotationVersions}
+                onRestoreVersion={onRestoreAnnotationVersion}
               />
             </div>
           </section>

@@ -7,7 +7,11 @@ import { AnnotatableImageViewer } from "@/components/project/image-viewer/annota
 import { useImageAnnotations } from "@/components/project/image-viewer/use-image-annotations";
 import { PredictionDataTable } from "@/components/project/tables/prediction-data-table";
 import { SelectedCaseDataPanel } from "@/components/project/tables/selected-case-data-panel";
-import type { CaseRow, ColumnMetadata } from "@/components/project/types";
+import type {
+  CaseRow,
+  ColumnMetadata,
+  ImageAnnotation,
+} from "@/components/project/types";
 
 export function ProjectCaseViewer({
   projectId,
@@ -48,7 +52,13 @@ export function ProjectCaseViewer({
     () => predictionColumnsWithEdits(workingCases),
     [workingCases]
   );
-  const { annotations, setAnnotations, saveAnnotations } = useImageAnnotations({
+  const {
+    annotations,
+    setAnnotations,
+    saveAnnotations,
+    versions: annotationVersions,
+    restoreAnnotations,
+  } = useImageAnnotations({
     caseId: selectedCase?.id ?? null,
     projectId,
   });
@@ -64,6 +74,22 @@ export function ProjectCaseViewer({
           ? {
               ...annotation,
               name,
+            }
+          : annotation
+      )
+    );
+  }
+
+  function updateAnnotationMetadata(
+    annotationId: string,
+    metadata: Partial<Pick<ImageAnnotation, "label" | "source" | "confidence">>
+  ) {
+    setAnnotations((current) =>
+      current.map((annotation) =>
+        annotation.id === annotationId
+          ? {
+              ...annotation,
+              ...metadata,
             }
           : annotation
       )
@@ -166,8 +192,11 @@ export function ProjectCaseViewer({
           selectedAnnotationId={selectedAnnotationId}
           onSelectAnnotation={focusAnnotation}
           onRenameAnnotation={updateAnnotationName}
+          onUpdateAnnotationMetadata={updateAnnotationMetadata}
           onDeleteSelectedAnnotation={deleteSelectedAnnotation}
           onSaveAnnotations={saveAnnotations}
+          annotationVersions={annotationVersions}
+          onRestoreAnnotationVersion={restoreAnnotations}
         />
       </div>
 
