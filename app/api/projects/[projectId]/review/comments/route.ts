@@ -38,17 +38,6 @@ export async function GET(_request: Request, { params }: RouteContext) {
               storagePath: true,
             },
           },
-          comments: {
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  name: true,
-                  email: true,
-                },
-              },
-            },
-          },
           reviewStates: {
             include: {
               user: {
@@ -77,15 +66,6 @@ export async function GET(_request: Request, { params }: RouteContext) {
           imageId: projectCase.imageId,
           registrationNumber: projectCase.registrationNumber,
         }),
-        comments: projectCase.comments
-          .filter((comment) => comment.content.trim() !== "")
-          .map((comment) => ({
-            userId: comment.userId,
-            userName: comment.user.name,
-            userEmail: comment.user.email,
-            content: comment.content,
-            updatedAt: formatSeoulDateTime(comment.updatedAt),
-          })),
         reviewStates: projectCase.reviewStates.map((reviewState) => ({
           userId: reviewState.userId,
           userName: reviewState.user.name,

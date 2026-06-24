@@ -744,7 +744,6 @@ export default async function ProjectReviewPage({
       data: toStringRecord(edit.data),
     })),
     annotations: [],
-    comments: [],
     reviewStates: [],
   }));
 

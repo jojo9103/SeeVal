@@ -20,7 +20,6 @@ export function SelectedCaseCommentsPanel({
   projectId: string;
   caseId: string | null;
 }) {
-  const [content, setContent] = useState("");
   const [reviewStatus, setReviewStatus] =
     useState<CaseReviewStatus>("NOT_REVIEWED");
   const [tagsText, setTagsText] = useState("");
@@ -51,7 +50,6 @@ export function SelectedCaseCommentsPanel({
         }
 
         const payload = (await response.json()) as {
-          content?: unknown;
           reviewState?: {
             status?: CaseReviewStatus;
             tags?: string[];
@@ -63,7 +61,6 @@ export function SelectedCaseCommentsPanel({
           return;
         }
 
-        setContent(typeof payload.content === "string" ? payload.content : "");
         setReviewStatus(payload.reviewState?.status ?? "NOT_REVIEWED");
         setTagsText((payload.reviewState?.tags ?? []).join(", "));
         setReviewNote(payload.reviewState?.note ?? "");
@@ -102,7 +99,6 @@ export function SelectedCaseCommentsPanel({
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            content,
             reviewState: {
               status: reviewStatus,
               tags: tagsText
@@ -155,7 +151,7 @@ export function SelectedCaseCommentsPanel({
                   ? "저장 완료"
                   : status === "error"
                     ? message || "저장 실패"
-            : "현재 이미지에 대한 comments와 review 상태를 남깁니다."}
+            : "현재 이미지에 대한 comments를 남깁니다."}
         </p>
         <button
           type="button"
@@ -170,7 +166,7 @@ export function SelectedCaseCommentsPanel({
       <section className="mt-3 rounded-xl border border-white/10 bg-[#111]/55 p-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-white">
           <Flag className="h-4 w-4 text-amber-100" />
-          Review 상태
+          Comments
         </div>
         <div className="mt-3 grid gap-2">
           <select
@@ -213,22 +209,11 @@ export function SelectedCaseCommentsPanel({
             }}
             disabled={!caseId || status === "loading" || status === "saving"}
             rows={3}
-            placeholder="Review 상태 메모"
+            placeholder="Comments 메모"
             className="resize-none rounded-md border border-white/10 bg-[#111] px-2 py-2 text-sm text-white outline-none placeholder:text-white/28 focus:border-teal-200/50 disabled:cursor-not-allowed disabled:opacity-45"
           />
         </div>
       </section>
-      <textarea
-        value={caseId ? content : ""}
-        onChange={(event) => {
-          setContent(event.currentTarget.value);
-          setStatus("dirty");
-          setMessage("");
-        }}
-        disabled={!caseId || status === "loading" || status === "saving"}
-        placeholder="이 이미지에 대한 comment를 입력하세요."
-        className="mt-3 min-h-[360px] w-full resize-y rounded-xl border border-white/10 bg-[#111]/80 p-3 text-sm leading-6 text-white outline-none transition placeholder:text-white/32 focus:border-teal-200/50 disabled:cursor-not-allowed disabled:opacity-45"
-      />
     </div>
   );
 }

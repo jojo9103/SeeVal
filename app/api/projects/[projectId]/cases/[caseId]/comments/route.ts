@@ -51,7 +51,7 @@ async function requireProjectAccess(projectId: string, caseId: string) {
     throw new Error("Comment를 저장할 수 있는 샘플이 아닙니다.");
   }
 
-  return user;
+  return { user, projectId: projectCase.projectId };
 }
 
 function normalizeTags(value: unknown) {
@@ -69,39 +69,23 @@ function normalizeTags(value: unknown) {
 export async function GET(_request: Request, { params }: RouteContext) {
   try {
     const { projectId, caseId } = await params;
-    const user = await requireProjectAccess(projectId, caseId);
-    const [comment, reviewState] = await Promise.all([
-      prisma.projectCaseComment.findUnique({
-        where: {
-          caseId_userId: {
-            caseId,
-            userId: user.id,
-          },
+    const { user } = await requireProjectAccess(projectId, caseId);
+    const reviewState = await prisma.projectCaseReviewState.findUnique({
+      where: {
+        caseId_userId: {
+          caseId,
+          userId: user.id,
         },
-        select: {
-          content: true,
-          updatedAt: true,
-        },
-      }),
-      prisma.projectCaseReviewState.findUnique({
-        where: {
-          caseId_userId: {
-            caseId,
-            userId: user.id,
-          },
-        },
-        select: {
-          status: true,
-          tags: true,
-          note: true,
-          updatedAt: true,
-        },
-      }),
-    ]);
+      },
+      select: {
+        status: true,
+        tags: true,
+        note: true,
+        updatedAt: true,
+      },
+    });
 
     return NextResponse.json({
-      content: comment?.content ?? "",
-      updatedAt: comment?.updatedAt?.toISOString() ?? null,
       reviewState: {
         status: reviewState?.status ?? "NOT_REVIEWED",
         tags: normalizeTags(reviewState?.tags),
@@ -112,7 +96,6 @@ export async function GET(_request: Request, { params }: RouteContext) {
   } catch (error) {
     return NextResponse.json(
       {
-        content: "",
         message:
           error instanceof Error
             ? error.message
@@ -127,20 +110,16 @@ export async function PUT(request: Request, { params }: RouteContext) {
   try {
     const { projectId, caseId } = await params;
     const body = (await request.json()) as {
-      content?: unknown;
       reviewState?: {
         status?: unknown;
         tags?: unknown;
         note?: unknown;
       };
     };
-    const user = await requireProjectAccess(projectId, caseId);
-    const projectCase = await prisma.projectCase.findUnique({
-      where: { id: caseId },
-      select: { projectId: true },
-    });
-    const content =
-      typeof body.content === "string" ? body.content.slice(0, 10000) : "";
+    const { user, projectId: resolvedProjectId } = await requireProjectAccess(
+      projectId,
+      caseId
+    );
     const reviewStatus: CaseReviewStatus =
       typeof body.reviewState?.status === "string" &&
       reviewStatuses.has(body.reviewState.status)
@@ -152,59 +131,11 @@ export async function PUT(request: Request, { params }: RouteContext) {
         : null;
     const reviewTags = normalizeTags(body.reviewState?.tags);
 
-    if (!projectCase) {
-      throw new Error("Comment를 저장할 수 있는 샘플이 아닙니다.");
-    }
-
-    if (content.trim() === "") {
-      await prisma.$transaction([
-        prisma.projectCaseComment.deleteMany({
-          where: {
-            caseId,
-            userId: user.id,
-          },
-        }),
-        prisma.projectCaseReviewState.upsert({
-          where: {
-            caseId_userId: {
-              caseId,
-              userId: user.id,
-            },
-          },
-          create: {
-            projectId: projectCase.projectId,
-            caseId,
-            userId: user.id,
-            status: reviewStatus,
-            tags: reviewTags,
-            note: reviewNote,
-          },
-          update: {
-            status: reviewStatus,
-            tags: reviewTags,
-            note: reviewNote,
-          },
-        }),
-      ]);
-
-      return NextResponse.json({ ok: true, content: "" });
-    }
-
     await prisma.$transaction([
-      prisma.projectCaseComment.upsert({
+      prisma.projectCaseComment.deleteMany({
         where: {
-          caseId_userId: {
-            caseId,
-            userId: user.id,
-          },
-        },
-        create: {
           caseId,
           userId: user.id,
-          content,
-        },
-        update: {
-          content,
         },
       }),
       prisma.projectCaseReviewState.upsert({
@@ -215,7 +146,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
           },
         },
         create: {
-          projectId: projectCase.projectId,
+          projectId: resolvedProjectId,
           caseId,
           userId: user.id,
           status: reviewStatus,
@@ -230,7 +161,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
       }),
     ]);
 
-    return NextResponse.json({ ok: true, content });
+    return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(
       {

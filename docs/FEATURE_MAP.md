@@ -130,7 +130,7 @@
   - 선택된 샘플의 임상데이터와 모델예측 결과를 side panel로 보여줍니다.
   - 패널 내부 Navbar로 `임상데이터`, `모델예측 결과`, `Annotations`, `Comments` 탭을 전환합니다.
   - `Annotations` 탭은 Image Viewer 아래에 있던 annotation 목록을 이동한 위치이며, 여기서 annotation naming 수정, 선택 삭제, 저장 버튼 즉시 저장을 할 수 있습니다.
-  - `Comments` 탭은 현재 이미지/샘플에 대한 현재 사용자 comment와 review 상태를 작성하고 저장합니다.
+  - `Comments` 탭은 현재 이미지/샘플에 대한 현재 사용자 상태, 태그, 메모를 작성하고 저장합니다.
   - 수정 허용 `Edit {column}`은 column metadata에 따라 int/float/string/category/bool 입력 UI를 사용합니다.
   - 현재 로그인한 사용자 이름을 안내해, 공유받은 USER도 본인 평가값을 저장한다는 점을 명확히 표시합니다.
   - 선택된 샘플의 `Edit {column}` 값을 reset/delete할 수 있습니다.
@@ -146,9 +146,9 @@
 
 - `components/project/tables/selected-case-comments-panel.tsx`
   - 선택된 데이터 패널의 `Comments` 탭 내용을 담당합니다.
-  - 현재 선택된 case의 현재 사용자 comment를 불러오고 textarea에서 수정한 뒤 저장 버튼으로 저장합니다.
-  - Review 상태, 태그, 상태 메모를 comment와 같은 저장 버튼으로 함께 저장합니다.
-  - 빈 comment를 저장하면 해당 사용자의 comment row를 삭제해 취합 화면에서 보이지 않게 합니다.
+  - 현재 선택된 case의 현재 사용자 Comments 상태, 태그, 메모를 불러오고 저장합니다.
+  - 자유 입력형 comment textarea는 사용하지 않고 `ProjectCaseReviewState`를 Comments의 저장 단위로 사용합니다.
+  - 저장 시 같은 사용자/샘플에 남아 있는 legacy 자유 입력 comment row는 삭제합니다.
 
 - `components/project-review-table.tsx`
   - 평가 취합 페이지의 테이블입니다.
@@ -227,10 +227,10 @@
   - `Majority consensus JSON`은 label이 같고 IoU 0.5 이상으로 묶이는 annotation cluster 중 과반 이상 사용자가 투표한 annotation을 consensus로 내보냅니다.
 
 - `components/project-comments-review-viewer.tsx`
-  - 평가 취합 페이지의 `Comments & Review 상태 취합` 탭을 담당합니다.
-  - comment 또는 review 상태가 있는 이미지/샘플을 목록에 표시합니다.
-  - 선택한 이미지 preview를 왼쪽에 보여주고, 오른쪽에는 사용자별 review 상태와 comments를 함께 취합해 보여줍니다.
-  - `샘플 JSON`은 현재 선택된 샘플의 comments/reviewStates를 저장하고, `전체 JSON`은 전체 취합 샘플의 comments/reviewStates를 저장합니다.
+  - 평가 취합 페이지의 `Comments 취합` 탭을 담당합니다.
+  - 사용자별 Comments 상태, 태그, 메모가 있는 이미지/샘플을 목록에 표시합니다.
+  - 선택한 이미지 preview를 보여주고, 사용자별 Comments 상태 라벨, 태그, 메모, 수정 시간을 취합해 보여줍니다.
+  - `샘플 JSON`은 현재 선택된 샘플의 comments를 저장하고, `전체 JSON`은 전체 취합 샘플의 comments를 저장합니다.
 
 - `app/api/projects/[projectId]/cases/[caseId]/prediction/route.ts`
   - 사용자별 모델예측 수정값 저장 API입니다.
@@ -244,11 +244,11 @@
   - 실패 시 `{ row, column, value, message }` 형태의 오류 목록을 반환합니다.
 
 - `app/api/projects/[projectId]/cases/[caseId]/comments/route.ts`
-  - 사용자별 이미지/샘플 comment 저장 API입니다.
-  - DB의 `ProjectCaseComment` 모델을 사용합니다.
+  - 사용자별 이미지/샘플 Comments 저장 API입니다.
+  - DB의 `ProjectCaseReviewState` 모델을 사용합니다.
   - 프로젝트 소유자, 공유 허가된 USER, ADMIN이 접근할 수 있습니다.
-  - `GET`은 현재 로그인한 사용자의 comment를 반환합니다.
-  - `PUT`은 현재 로그인한 사용자의 comment를 upsert하고, 빈 comment는 삭제합니다.
+  - `GET`은 현재 로그인한 사용자의 Comments 상태, 태그, 메모를 반환합니다.
+  - `PUT`은 현재 로그인한 사용자의 Comments 상태, 태그, 메모를 upsert하고 legacy 자유 입력 comment row는 삭제합니다.
 
 - `lib/auth.ts`
   - `seev_session` 쿠키 생성/검증/삭제와 `requireUser`, `requireAdmin` 인증 guard를 담당합니다.
@@ -320,8 +320,8 @@
   - Review 초기 페이지 로딩에서 annotations 전체를 제외해 첫 응답을 가볍게 유지합니다.
 
 - `app/api/projects/[projectId]/review/comments/route.ts`
-  - Review의 `Comments & Review 상태 취합` 탭용 데이터를 lazy load합니다.
-  - Review 초기 페이지 로딩에서 comments/reviewStates 전체를 제외해 첫 응답을 가볍게 유지합니다.
+  - Review의 `Comments 취합` 탭용 데이터를 lazy load합니다.
+  - Review 초기 페이지 로딩에서 사용자별 Comments 상태 전체를 제외해 첫 응답을 가볍게 유지합니다.
 
 - `app/api/projects/[projectId]/cases/[caseId]/review-state/route.ts`
   - 현재 사용자의 case별 review 상태를 저장/불러오기 API입니다.

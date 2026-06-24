@@ -2,14 +2,6 @@
 
 import { useMemo, useState } from "react";
 
-type CommentUser = {
-  userId: string;
-  userName: string;
-  userEmail: string;
-  content: string;
-  updatedAt: string;
-};
-
 type ReviewStateUser = {
   userId: string;
   userName: string;
@@ -26,7 +18,6 @@ type CommentReviewRow = {
   imageId: string | null;
   imageUrl: string | null;
   imageFileName: string | null;
-  comments: CommentUser[];
   reviewStates: ReviewStateUser[];
 };
 
@@ -64,11 +55,7 @@ function downloadJson(fileName: string, payload: unknown) {
   URL.revokeObjectURL(url);
 }
 
-function commentCount(row: CommentReviewRow) {
-  return row.comments.filter((comment) => comment.content.trim()).length;
-}
-
-function reviewStateCount(row: CommentReviewRow) {
+function commentsCount(row: CommentReviewRow) {
   return row.reviewStates.filter(
     (reviewState) =>
       reviewState.status !== "NOT_REVIEWED" ||
@@ -78,7 +65,7 @@ function reviewStateCount(row: CommentReviewRow) {
 }
 
 function rowHasReviewContent(row: CommentReviewRow) {
-  return commentCount(row) > 0 || reviewStateCount(row) > 0;
+  return commentsCount(row) > 0;
 }
 
 function buildCommentExportSample(row: CommentReviewRow) {
@@ -87,16 +74,7 @@ function buildCommentExportSample(row: CommentReviewRow) {
     registrationNumber: row.registrationNumber,
     imageId: row.imageId,
     imageFileName: row.imageFileName,
-    comments: row.comments
-      .filter((comment) => comment.content.trim())
-      .map((comment) => ({
-        userId: comment.userId,
-        userName: comment.userName,
-        userEmail: comment.userEmail,
-        content: comment.content,
-        updatedAt: comment.updatedAt,
-      })),
-    reviewStates: row.reviewStates
+    comments: row.reviewStates
       .filter(
         (reviewState) =>
           reviewState.status !== "NOT_REVIEWED" ||
@@ -132,8 +110,6 @@ export function ProjectCommentsReviewViewer({
     rowsWithComments.find((row) => row.id === selectedRowId) ??
     rowsWithComments[0] ??
     null;
-  const selectedComments =
-    selectedRow?.comments.filter((comment) => comment.content.trim()) ?? [];
   const selectedReviewStates =
     selectedRow?.reviewStates.filter(
       (reviewState) =>
@@ -171,9 +147,9 @@ export function ProjectCommentsReviewViewer({
     <section className="mt-6 rounded-2xl border border-white/12 bg-white/[0.06] p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">Comments & Review 상태 취합</h2>
+          <h2 className="text-lg font-semibold">Comments 취합</h2>
           <p className="mt-2 text-sm text-white/54">
-            이미지별로 사용자 comments와 review 상태를 모아 확인합니다.
+            이미지별 사용자 Comments 상태, 태그, 메모를 모아 확인합니다.
           </p>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
@@ -222,7 +198,7 @@ export function ProjectCommentsReviewViewer({
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-medium">{row.registrationNumber}</span>
                     <span className="rounded-md bg-white/[0.06] px-2 py-0.5 text-xs text-white/55">
-                      C {commentCount(row)} · S {reviewStateCount(row)}
+                      {commentsCount(row)}명
                     </span>
                   </div>
                   <p className="mt-1 truncate text-xs text-white/42">
@@ -233,7 +209,7 @@ export function ProjectCommentsReviewViewer({
             })}
             {rowsWithComments.length === 0 && (
               <div className="rounded-lg border border-dashed border-white/12 px-3 py-8 text-center text-sm text-white/42">
-                취합할 comments 또는 review 상태가 없습니다.
+                취합할 comments가 없습니다.
               </div>
             )}
           </div>
@@ -275,7 +251,7 @@ export function ProjectCommentsReviewViewer({
           <div className="rounded-xl border border-white/10 bg-[#171717]/55 p-3">
             <div className="flex items-center justify-between gap-3">
               <h3 className="text-sm font-semibold text-white/86">
-                Review 상태
+                Comments
               </h3>
               <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-xs text-white/48">
                 {selectedReviewStates.length}
@@ -324,45 +300,6 @@ export function ProjectCommentsReviewViewer({
                 </article>
               ))}
               {selectedReviewStates.length === 0 && (
-                <div className="rounded-lg border border-dashed border-white/12 px-3 py-8 text-center text-sm text-white/42">
-                  이 이미지에 저장된 review 상태가 없습니다.
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-white/10 bg-[#171717]/55 p-3">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-sm font-semibold text-white/86">Comments</h3>
-              <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-xs text-white/48">
-                {selectedComments.length}
-              </span>
-            </div>
-            <div className="mt-3 grid gap-3 lg:grid-cols-2">
-              {selectedComments.map((comment) => (
-                <article
-                  key={`${comment.userId}-${selectedRow?.id}`}
-                  className="rounded-lg border border-white/10 bg-white/[0.035] p-3"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <p className="text-sm font-medium text-white/86">
-                        {comment.userName}
-                      </p>
-                      <p className="mt-0.5 text-xs text-white/38">
-                        {comment.userEmail}
-                      </p>
-                    </div>
-                    <span className="text-xs text-white/38">
-                      {comment.updatedAt}
-                    </span>
-                  </div>
-                  <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-white/72">
-                    {comment.content}
-                  </p>
-                </article>
-              ))}
-              {selectedComments.length === 0 && (
                 <div className="rounded-lg border border-dashed border-white/12 px-3 py-8 text-center text-sm text-white/42">
                   이 이미지에 저장된 comments가 없습니다.
                 </div>

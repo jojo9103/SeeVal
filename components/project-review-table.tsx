@@ -57,13 +57,6 @@ type ReviewRow = {
     userEmail: string;
     annotations: ReviewAnnotation[];
   }>;
-  comments: Array<{
-    userId: string;
-    userName: string;
-    userEmail: string;
-    content: string;
-    updatedAt: string;
-  }>;
   reviewStates: Array<{
     userId: string;
     userName: string;
@@ -85,7 +78,6 @@ type LazyCommentRow = Pick<
   | "imageId"
   | "imageUrl"
   | "imageFileName"
-  | "comments"
   | "reviewStates"
 >;
 
@@ -444,7 +436,6 @@ export function ProjectReviewTable({
             ...row,
               imageUrl: row.imageUrl ?? update.imageUrl,
               imageFileName: row.imageFileName ?? update.imageFileName,
-              comments: update.comments,
               reviewStates: update.reviewStates,
             })
           );
