@@ -62,15 +62,60 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
         },
       ],
     },
-    include: {
+    select: {
+      id: true,
+      name: true,
+      ownerId: true,
+      editablePredictionColumns: true,
+      createdAt: true,
       owner: { select: { name: true, email: true, organization: true } },
-      files: { orderBy: [{ kind: "asc" }, { createdAt: "desc" }] },
-      columnMetadata: { orderBy: { createdAt: "asc" } },
-      cases: {
-        include: {
-          imageFile: true,
+    },
+  });
+
+  if (!project) {
+    notFound();
+  }
+
+  const [fileCount, imageFiles, columnMetadataRows, projectCases] =
+    await Promise.all([
+      prisma.projectFile.count({
+        where: { projectId: project.id },
+      }),
+      prisma.projectFile.findMany({
+        where: {
+          projectId: project.id,
+          kind: "IMAGE",
+        },
+        select: {
+          fileName: true,
+          relativePath: true,
+          storagePath: true,
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.projectColumnMetadata.findMany({
+        where: { projectId: project.id },
+        orderBy: { createdAt: "asc" },
+      }),
+      prisma.projectCase.findMany({
+        where: { projectId: project.id },
+        select: {
+          id: true,
+          registrationNumber: true,
+          imageId: true,
+          imageFolder: true,
+          clinicalData: true,
+          predictionData: true,
+          imageFile: {
+            select: {
+              fileName: true,
+              storagePath: true,
+            },
+          },
           predictionEdits: {
-            include: {
+            select: {
+              userId: true,
+              data: true,
               user: {
                 select: {
                   id: true,
@@ -82,24 +127,24 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
           },
           reviewStates: {
             where: { userId: user.id },
+            select: {
+              status: true,
+              tags: true,
+              note: true,
+            },
             take: 1,
           },
         },
         orderBy: { createdAt: "desc" },
-      },
-    },
-  });
-
-  if (!project) {
-    notFound();
-  }
+      }),
+    ]);
 
   const isOwner = project.ownerId === user.id;
   const canReview = isOwner || user.role === "ADMIN";
   const editablePredictionColumns = toStringArray(
     project.editablePredictionColumns
   );
-  const columnMetadata = project.columnMetadata.map((column) => ({
+  const columnMetadata = columnMetadataRows.map((column) => ({
     name: column.name,
     dataType: column.dataType,
     minValue: column.minValue,
@@ -108,45 +153,44 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     unit: column.unit,
     description: column.description,
   }));
-  const imageLookup = buildProjectImageLookup(
-    project.files.filter((file) => file.kind === "IMAGE")
-  );
-  const caseRows = project.cases.map((projectCase) => ({
-    id: projectCase.id,
-    registrationNumber: projectCase.registrationNumber,
-    imageId: projectCase.imageId,
-    imageFolder: projectCase.imageFolder,
-    imageUrl:
-      projectCase.imageFile?.storagePath ??
+  const imageLookup = buildProjectImageLookup(imageFiles);
+  const caseRows = projectCases.map((projectCase) => {
+    const matchedImageFile =
+      projectCase.imageFile ??
       findProjectImageFileForCase({
         imageLookup,
         imageFolder: projectCase.imageFolder,
         imageId: projectCase.imageId,
         registrationNumber: projectCase.registrationNumber,
-      })?.storagePath ??
-      null,
-    imageFileName:
-      projectCase.imageFile?.fileName ??
-      findProjectImageFileForCase({
-        imageLookup,
-        imageFolder: projectCase.imageFolder,
-        imageId: projectCase.imageId,
-        registrationNumber: projectCase.registrationNumber,
-      })?.fileName ??
-      null,
-    clinicalData: toStringRecord(projectCase.clinicalData),
-    predictionData: toStringRecord(projectCase.predictionData),
-    editablePredictionColumns,
-    reviewStatus: projectCase.reviewStates[0]?.status ?? "NOT_REVIEWED",
-    reviewTags: toStringArray(projectCase.reviewStates[0]?.tags),
-    reviewNote: projectCase.reviewStates[0]?.note ?? null,
-    predictionEdits: projectCase.predictionEdits.map((edit) => ({
-      userId: edit.userId,
-      userName: edit.user.name,
-      userEmail: edit.user.email,
-      data: toStringRecord(edit.data),
-    })),
-  }));
+      });
+
+    return {
+      id: projectCase.id,
+      registrationNumber: projectCase.registrationNumber,
+      imageId: projectCase.imageId,
+      imageFolder: projectCase.imageFolder,
+      imageUrl: matchedImageFile?.storagePath ?? null,
+      imageFileName: matchedImageFile?.fileName ?? null,
+      clinicalData: toStringRecord(projectCase.clinicalData),
+      predictionData: toStringRecord(projectCase.predictionData),
+      editablePredictionColumns,
+      reviewStatus: projectCase.reviewStates[0]?.status ?? "NOT_REVIEWED",
+      reviewTags: toStringArray(projectCase.reviewStates[0]?.tags),
+      reviewNote: projectCase.reviewStates[0]?.note ?? null,
+      predictionEdits: projectCase.predictionEdits.map((edit) => ({
+        userId: edit.userId,
+        userName: edit.user.name,
+        userEmail: edit.user.email,
+        data: toStringRecord(edit.data),
+      })),
+    };
+  });
+  const caseRowsRevision = [
+    project.id,
+    caseRows.length,
+    caseRows[0]?.id ?? "",
+    caseRows.at(-1)?.id ?? "",
+  ].join(":");
 
   return (
     <main className="min-h-screen overflow-x-hidden bg-[#171717] px-6 py-8 text-white">
@@ -182,7 +226,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
               )}
               {isOwner && <ProjectDataUploadButton projectId={project.id} />}
               <div className="rounded-xl border border-white/12 bg-white/[0.06] px-4 py-3 text-sm text-white/58">
-                파일 {project.files.length}개
+                파일 {fileCount}개
               </div>
             </div>
           </div>
@@ -190,7 +234,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
 
         {caseRows.length > 0 ? (
           <ProjectCaseViewer
-            key={caseRows.map((caseRow) => caseRow.id).join(":")}
+            key={caseRowsRevision}
             projectId={project.id}
             currentUserId={user.id}
             currentUserName={user.name}

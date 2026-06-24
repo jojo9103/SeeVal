@@ -181,7 +181,6 @@ export function ProjectCaseViewer({
         />
 
         <SelectedCaseDataPanel
-          key={`data-panel-${selectedCase?.id ?? "empty"}`}
           projectId={projectId}
           currentUserId={currentUserId}
           currentUserName={currentUserName}

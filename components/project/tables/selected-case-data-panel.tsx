@@ -70,8 +70,19 @@ export function SelectedCaseDataPanel({
 }) {
   const [activeSection, setActiveSection] =
     useState<SelectedDataSection>("clinical");
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
-  const [saveError, setSaveError] = useState("");
+  const [saveState, setSaveState] = useState<{
+    caseId: string | null;
+    status: SaveStatus;
+    error: string;
+  }>({
+    caseId: null,
+    status: "idle",
+    error: "",
+  });
+  const saveStatus =
+    saveState.caseId === (caseRow?.id ?? null) ? saveState.status : "idle";
+  const saveError =
+    saveState.caseId === (caseRow?.id ?? null) ? saveState.error : "";
   const clinicalEntries = Object.entries(caseRow?.clinicalData ?? {}).filter(
     ([, value]) => value
   );
@@ -139,10 +150,19 @@ export function SelectedCaseDataPanel({
       return;
     }
 
-    const timer = window.setTimeout(() => setSaveStatus("idle"), 1800);
+    const timer = window.setTimeout(
+      () =>
+        setSaveState((current) =>
+          current.caseId === (caseRow?.id ?? null) &&
+          current.status === "saved"
+            ? { ...current, status: "idle" }
+            : current
+        ),
+      1800
+    );
 
     return () => window.clearTimeout(timer);
-  }, [saveStatus]);
+  }, [caseRow?.id, saveStatus]);
 
   function updatePredictionValue(column: string, value: string) {
     if (!caseRow || !isInputAllowedByType(value, columnDataType(column))) {
@@ -153,8 +173,11 @@ export function SelectedCaseDataPanel({
       ...effectivePredictionData(caseRow, currentUserId),
       [column]: value,
     });
-    setSaveError("");
-    setSaveStatus("dirty");
+    setSaveState({
+      caseId: caseRow.id,
+      status: "dirty",
+      error: "",
+    });
   }
 
   async function savePrediction() {
@@ -162,7 +185,11 @@ export function SelectedCaseDataPanel({
       return;
     }
 
-    setSaveStatus("saving");
+    setSaveState({
+      caseId: caseRow.id,
+      status: "saving",
+      error: "",
+    });
 
     try {
       const response = await fetch(
@@ -184,12 +211,20 @@ export function SelectedCaseDataPanel({
         throw new Error(result.message ?? "모델예측 결과를 저장하지 못했습니다.");
       }
 
-      setSaveStatus("saved");
+      setSaveState({
+        caseId: caseRow.id,
+        status: "saved",
+        error: "",
+      });
     } catch (error) {
-      setSaveError(
-        error instanceof Error ? error.message : "모델예측 결과를 저장하지 못했습니다."
-      );
-      setSaveStatus("error");
+      setSaveState({
+        caseId: caseRow.id,
+        status: "error",
+        error:
+          error instanceof Error
+            ? error.message
+            : "모델예측 결과를 저장하지 못했습니다.",
+      });
     }
   }
 
@@ -211,7 +246,11 @@ export function SelectedCaseDataPanel({
       return;
     }
 
-    setSaveStatus("saving");
+    setSaveState({
+      caseId: caseRow.id,
+      status: "saving",
+      error: "",
+    });
 
     try {
       const response = await fetch(
@@ -246,12 +285,20 @@ export function SelectedCaseDataPanel({
       }
 
       onUpdatePrediction(caseRow.id, nextData);
-      setSaveStatus("saved");
+      setSaveState({
+        caseId: caseRow.id,
+        status: "saved",
+        error: "",
+      });
     } catch (error) {
-      setSaveError(
-        error instanceof Error ? error.message : "Edit 데이터를 변경하지 못했습니다."
-      );
-      setSaveStatus("error");
+      setSaveState({
+        caseId: caseRow.id,
+        status: "error",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Edit 데이터를 변경하지 못했습니다.",
+      });
     }
   }
 
