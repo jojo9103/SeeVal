@@ -186,10 +186,13 @@
   - 빈 값은 제외하고 같은 샘플에 2명 이상이 값을 남긴 경우만 비교합니다.
   - column별 비교 샘플 수, 전체 일치율, pairwise 일치율, kappa, 불일치 샘플 수, 주요 값 분포를 표시합니다.
   - column row를 펼치면 불일치 샘플과 사용자별 값을 확인할 수 있습니다.
+  - 펼친 column마다 기준 target column과 positive 값을 따로 선택해 사용자별 Edit 값의 Accuracy, F1, Sensitivity, AUC, PRAUC를 계산합니다.
+  - AUC/PRAUC는 Edit 값이 숫자 score일 때 계산하고, label 형태의 Edit 값은 Accuracy/F1/Sensitivity 중심으로 확인합니다.
 
 - `lib/project-review-agreement.ts`
   - 평가 결과 일치도 계산 helper입니다.
   - `Edit {column}` 값을 기준으로 전체 일치율, pairwise 일치율, pooled category proportion 기반 kappa를 계산합니다.
+  - 선택한 target column 대비 사용자별 `Edit {column}`의 TP/TN/FP/FN, Accuracy, F1, Sensitivity, AUC, PRAUC를 계산합니다.
   - 서버/API 없이 브라우저에 이미 로딩된 review rows로 계산해 Neon/Vercel 추가 비용을 만들지 않습니다.
 
 - `lib/project-column-metadata.ts`

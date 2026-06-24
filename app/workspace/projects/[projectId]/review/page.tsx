@@ -710,6 +710,12 @@ export default async function ProjectReviewPage({
     })
   );
   const imageLookup = buildProjectImageLookup(project.files);
+  const reviewDataRevision = Math.max(
+    project.updatedAt.getTime(),
+    ...project.cases.flatMap((projectCase) =>
+      projectCase.predictionEdits.map((edit) => edit.updatedAt.getTime())
+    )
+  );
   const rows = project.cases.map((projectCase) => ({
     id: projectCase.id,
     registrationNumber: projectCase.registrationNumber,
@@ -747,6 +753,7 @@ export default async function ProjectReviewPage({
         <header className="border-b border-white/10 pb-6">
           <Link
             href="/workspace"
+            prefetch={false}
             className="text-sm font-medium text-teal-200/80 transition hover:text-teal-100"
           >
             ← Workspace
@@ -766,6 +773,7 @@ export default async function ProjectReviewPage({
             </div>
             <Link
               href={`/workspace/projects/${project.id}`}
+              prefetch={false}
               className="inline-flex h-10 items-center justify-center rounded-md border border-white/14 bg-white/[0.07] px-4 text-sm font-medium text-white/78 transition hover:bg-white/12 hover:text-white"
             >
               프로젝트 보기
@@ -789,26 +797,7 @@ export default async function ProjectReviewPage({
                 ].join(":")
               )
               .join("|"),
-            rows
-              .map((row) =>
-                [
-                  row.id,
-                  row.predictionEdits
-                    .map((edit) =>
-                      [
-                        edit.userId,
-                        Object.entries(edit.data)
-                          .sort(([leftKey], [rightKey]) =>
-                            leftKey.localeCompare(rightKey)
-                          )
-                          .map(([key, value]) => `${key}:${value}`)
-                          .join(","),
-                      ].join("=")
-                    )
-                    .join("|"),
-                ].join(":")
-              )
-              .join("::"),
+            reviewDataRevision,
           ].join("::")}
           projectId={project.id}
           projectName={project.name}

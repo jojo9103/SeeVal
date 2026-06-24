@@ -393,84 +393,70 @@ export function ProjectReviewTable({
     sortedRows.length
   );
 
-  useEffect(() => {
-    if (activeReviewSection === "results" || loadedReviewSections[activeReviewSection]) {
-      return;
-    }
+  async function loadReviewSection(section: Exclude<ReviewSection, "results">) {
+    setLoadingReviewSection(section);
+    setLazyReviewMessage("");
 
-    let cancelled = false;
+    try {
+      const response = await fetch(`/api/projects/${projectId}/review/${section}`);
+      const payload = (await response.json()) as {
+        rows?: LazyAnnotationRow[] | LazyCommentRow[];
+        message?: string;
+      };
 
-    async function loadReviewSection() {
-      setLoadingReviewSection(activeReviewSection);
-      setLazyReviewMessage("");
+      if (!response.ok) {
+        throw new Error(payload.message ?? "취합 데이터를 불러오지 못했습니다.");
+      }
 
-      try {
-        const response = await fetch(
-          `/api/projects/${projectId}/review/${activeReviewSection}`
-        );
-        const payload = (await response.json()) as {
-          rows?: LazyAnnotationRow[] | LazyCommentRow[];
-          message?: string;
-        };
-
-        if (!response.ok) {
-          throw new Error(payload.message ?? "취합 데이터를 불러오지 못했습니다.");
-        }
-
-        if (cancelled) {
-          return;
-        }
-
-        setReviewRows((currentRows) => {
-          if (activeReviewSection === "annotations") {
-            return mergeReviewRows(
-              currentRows,
-              (payload.rows ?? []) as LazyAnnotationRow[],
-              (row, update) => ({
-                ...row,
-                imageUrl: row.imageUrl ?? update.imageUrl,
-                imageFileName: row.imageFileName ?? update.imageFileName,
-                annotations: update.annotations,
-              })
-            );
-          }
-
+      setReviewRows((currentRows) => {
+        if (section === "annotations") {
           return mergeReviewRows(
             currentRows,
-            (payload.rows ?? []) as LazyCommentRow[],
+            (payload.rows ?? []) as LazyAnnotationRow[],
             (row, update) => ({
               ...row,
               imageUrl: row.imageUrl ?? update.imageUrl,
               imageFileName: row.imageFileName ?? update.imageFileName,
-              comments: update.comments,
+              annotations: update.annotations,
             })
           );
-        });
-        setLoadedReviewSections((current) => ({
-          ...current,
-          [activeReviewSection]: true,
-        }));
-      } catch (error) {
-        if (!cancelled) {
-          setLazyReviewMessage(
-            error instanceof Error
-              ? error.message
-              : "취합 데이터를 불러오지 못했습니다."
-          );
         }
-      } finally {
-        if (!cancelled) {
-          setLoadingReviewSection(null);
-        }
-      }
+
+        return mergeReviewRows(
+          currentRows,
+          (payload.rows ?? []) as LazyCommentRow[],
+          (row, update) => ({
+            ...row,
+            imageUrl: row.imageUrl ?? update.imageUrl,
+            imageFileName: row.imageFileName ?? update.imageFileName,
+            comments: update.comments,
+          })
+        );
+      });
+      setLoadedReviewSections((current) => ({
+        ...current,
+        [section]: true,
+      }));
+    } catch (error) {
+      setLazyReviewMessage(
+        error instanceof Error
+          ? error.message
+          : "취합 데이터를 불러오지 못했습니다."
+      );
+    } finally {
+      setLoadingReviewSection(null);
+    }
+  }
+
+  function changeReviewSection(section: ReviewSection) {
+    setActiveReviewSection(section);
+
+    if (section === "results" || loadedReviewSections[section]) {
+      return;
     }
 
-    void loadReviewSection();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeReviewSection, loadedReviewSections, projectId]);
+    void loadReviewSection(section);
+  }
 
   function inferMetadataForColumn(column: string): ColumnMetadata {
     const values = reviewRows
@@ -933,7 +919,7 @@ export function ProjectReviewTable({
     <>
     <ReviewSectionMenu
       activeSection={activeReviewSection}
-      onSectionChange={setActiveReviewSection}
+      onSectionChange={changeReviewSection}
     />
     {activeReviewSection === "results" && (
     <section className="mt-6 rounded-2xl border border-white/12 bg-white/[0.06] p-5">
@@ -1275,6 +1261,7 @@ export function ProjectReviewTable({
           rows={reviewRows}
           users={sharedUsers}
           columns={visibleColumns}
+          availableColumns={columns}
         />
       </div>
 
